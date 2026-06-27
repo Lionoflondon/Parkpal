@@ -1,0 +1,158 @@
+# ParkPal
+
+ParkPal is a standalone Circum company product for parking, loading, and roadside restriction intelligence.
+
+Positioning: **Know before you park.**
+
+This repository currently contains the Firebase database foundation only. It does not include the full app UI, payments, subscriptions, AI interpretation, or Circum integration.
+
+## What is included
+
+- Firebase config placeholders for Firestore, Storage, and local emulators.
+- Strict draft Firestore security rules.
+- Strict draft Firebase Storage rules.
+- Firestore composite indexes for likely early queries.
+- Dart model definitions for the planned Flutter app.
+- Storage path constants for sign and report images.
+- Environment config pattern using Dart compile-time values.
+- Seed sample London records for:
+  - Kensington Road
+  - Westminster loading bay
+  - Camden permit zone
+  - Red route example
+  - School street example
+
+## Firestore collections
+
+| Collection | Purpose |
+| --- | --- |
+| `parkpal_signs` | Individual sign captures and interpreted restrictions. |
+| `parkpal_roads` | Road/street-level parking and loading intelligence. |
+| `parkpal_zones` | CPZs, permit zones, red routes, school streets, loading zones, bus lanes, and borough-wide rules. |
+| `parkpal_reports` | User reports when rules or signs change. |
+| `parkpal_contributors` | Pioneers, riders, admins, and public contributors. |
+| `parkpal_queries` | User lookups for future product learning and analytics. |
+| `parkpal_councils` | Council metadata and data-source tracking. |
+
+## Storage paths
+
+```text
+parkpal/signs/{signId}/original.jpg
+parkpal/signs/{signId}/thumb.jpg
+parkpal/reports/{reportId}/photo.jpg
+```
+
+## Firebase setup
+
+Install the Firebase CLI, then authenticate:
+
+```sh
+npm install -g firebase-tools
+firebase login
+```
+
+Create a new Firebase project in the Firebase console, then connect this repo locally:
+
+```sh
+cp .firebaserc.example .firebaserc
+firebase use --add
+```
+
+Replace the example project id in `.firebaserc` with the real ParkPal Firebase project id.
+
+Enable these Firebase products:
+
+- Authentication
+- Firestore
+- Storage
+- Hosting later
+- Functions later
+
+Run local emulators after Firebase is connected:
+
+```sh
+firebase emulators:start
+```
+
+Deploy only after reviewing rules against the real Firebase project:
+
+```sh
+firebase deploy --only firestore:rules,firestore:indexes,storage
+```
+
+## Dart / Flutter setup
+
+The model layer is plain Dart so it can be reused by the planned Flutter iOS, Android, and future web/admin surfaces.
+
+When Flutter is installed, run:
+
+```sh
+flutter pub get
+flutter analyze
+```
+
+Future app startup can pass environment values with:
+
+```sh
+flutter run \
+  --dart-define=PARKPAL_ENV=dev \
+  --dart-define=FIREBASE_PROJECT_ID=your-project-id \
+  --dart-define=FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com \
+  --dart-define=FIREBASE_REGION=europe-west2
+```
+
+## Seed data
+
+Seed records live in:
+
+```text
+firebase/seeds/london_seed.json
+```
+
+They are intentionally sample data, not authoritative council data. Import them only into a development project or emulator after writing a small importer or using the Firebase Admin SDK.
+
+## Security model draft
+
+- Public map intelligence can be read.
+- Signed-in users can create pending sign captures and reports.
+- Public users cannot verify signs.
+- Public users cannot edit verified road intelligence.
+- Contributors can update only their own pending submissions.
+- Admins, via custom claims, can verify, reject, update, and delete.
+- All unmatched paths deny reads and writes.
+
+Expected admin claim:
+
+```json
+{
+  "admin": true,
+  "role": "admin"
+}
+```
+
+Expected contributor role claims:
+
+```json
+{
+  "role": "pioneer"
+}
+```
+
+## Next setup steps
+
+1. Create the GitHub repository and push this local foundation.
+2. Create the ParkPal Firebase project.
+3. Copy `.firebaserc.example` to `.firebaserc` and select the Firebase project.
+4. Enable Auth, Firestore, and Storage.
+5. Review security rules with real auth/custom-claim flows.
+6. Add Firebase rules unit tests once the Firebase CLI and emulator tooling are installed.
+7. Generate real FlutterFire options once the Flutter app shell exists.
+8. Import seed data only into dev/emulator.
+
+## Not included yet
+
+- Full mobile UI.
+- Subscriptions or payments.
+- AI / IRIS sign interpretation calls.
+- Circum account or platform integration.
+- Production deployment.

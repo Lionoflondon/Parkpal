@@ -1,0 +1,132 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    function isContributor() {
+      return signedIn()
+        && request.auth.token.role in ['pioneer', 'rider', 'admin'];
+    }
+
+    function changedOnly(allowedFields) {
+      return request.resource.data.diff(resource.data).changedKeys()
+        .hasOnly(allowedFields);
+    }
+
+    match /parkpal_signs/{signId} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.signId == signId
+        && request.resource.data.capturedByUserId == request.auth.uid
+        && request.resource.data.verificationStatus == 'pending'
+        && !(request.resource.data.keys().hasAny(['verifiedBy', 'verifiedAt']));
+      allow update: if isAdmin()
+        || (
+          isContributor()
+          && resource.data.capturedByUserId == request.auth.uid
+          && resource.data.verificationStatus == 'pending'
+          && request.resource.data.verificationStatus == 'pending'
+          && changedOnly([
+            'photoUrl',
+            'thumbnailUrl',
+            'rawText',
+            'streetName',
+            'borough',
+            'council',
+            'postcode',
+            'geoPoint',
+            'latitude',
+            'longitude',
+            'updatedAt'
+          ])
+        );
+      allow delete: if isAdmin();
+    }
+
+    match /parkpal_roads/{roadId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /parkpal_zones/{zoneId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /parkpal_reports/{reportId} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.reportId == reportId
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'open';
+      allow update: if isAdmin()
+        || (
+          isContributor()
+          && resource.data.userId == request.auth.uid
+          && resource.data.status in ['open', 'reviewing']
+          && request.resource.data.status in ['open', 'reviewing']
+          && changedOnly([
+            'description',
+            'photoUrl',
+            'geoPoint',
+            'streetName',
+            'borough',
+            'council',
+            'updatedAt'
+          ])
+        );
+      allow delete: if isAdmin();
+    }
+
+    match /parkpal_contributors/{userId} {
+      allow read: if true;
+      allow create: if isOwner(userId)
+        && request.resource.data.userId == userId
+        && request.resource.data.role in ['public_user', 'rider', 'pioneer'];
+      allow update: if isAdmin()
+        || (
+          isOwner(userId)
+          && !request.resource.data.diff(resource.data).changedKeys().hasAny([
+            'role',
+            'pioneerNumber',
+            'contributionCount',
+            'verifiedContributionCount',
+            'rejectedContributionCount',
+            'mappingPoints',
+            'assignedBoroughs'
+          ])
+        );
+      allow delete: if isAdmin();
+    }
+
+    match /parkpal_queries/{queryId} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.queryId == queryId
+        && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /parkpal_councils/{councilId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

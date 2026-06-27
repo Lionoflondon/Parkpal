@@ -1,0 +1,58 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "parkpal_signs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "council", "order": "ASCENDING" },
+        { "fieldPath": "verificationStatus", "order": "ASCENDING" },
+        { "fieldPath": "latitude", "order": "ASCENDING" },
+        { "fieldPath": "longitude", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "parkpal_signs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "borough", "order": "ASCENDING" },
+        { "fieldPath": "verificationStatus", "order": "ASCENDING" },
+        { "fieldPath": "capturedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "parkpal_roads",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "council", "order": "ASCENDING" },
+        { "fieldPath": "borough", "order": "ASCENDING" },
+        { "fieldPath": "parkingRisk", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "parkpal_reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "reportType", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "parkpal_queries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "queriedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "parkpal_contributors",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "pioneerNumber", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

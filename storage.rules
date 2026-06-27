@@ -1,0 +1,37 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    function isImage() {
+      return request.resource != null
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    match /parkpal/signs/{signId}/{fileName} {
+      allow read: if true;
+      allow write: if signedIn()
+        && fileName in ['original.jpg', 'thumb.jpg']
+        && isImage();
+      allow delete: if isAdmin();
+    }
+
+    match /parkpal/reports/{reportId}/photo.jpg {
+      allow read: if signedIn();
+      allow write: if signedIn() && isImage();
+      allow delete: if isAdmin();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,18 @@
+.dart_tool/
+.firebase/
+.firebaserc
+build/
+coverage/
+node_modules/
+*.log
+
+# Firebase / local secrets
+.env
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
