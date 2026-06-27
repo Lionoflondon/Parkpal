@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../features/parking_query/parking_home_screen.dart';
+import 'parkpal_shell.dart';
 
 class ParkPalApp extends StatelessWidget {
   const ParkPalApp({super.key});
@@ -14,7 +14,7 @@ class ParkPalApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF145A32)),
         useMaterial3: true,
       ),
-      home: const ParkingHomeScreen(),
+      home: const ParkPalShell(),
     );
   }
 }

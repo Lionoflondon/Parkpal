@@ -11,6 +11,7 @@ class ParkingLookupResult {
     required this.riskLevel,
     required this.confidenceScore,
     required this.evidenceSource,
+    this.leaveByTime = 'Unknown',
   });
 
   factory ParkingLookupResult.unknown() {
@@ -23,6 +24,7 @@ class ParkingLookupResult {
       riskLevel: 'Unknown',
       confidenceScore: 0,
       evidenceSource: ParkingEvidenceSource.none,
+      leaveByTime: 'Unknown',
     );
   }
 
@@ -33,19 +35,20 @@ class ParkingLookupResult {
   final String riskLevel;
   final double confidenceScore;
   final ParkingEvidenceSource evidenceSource;
+  final String leaveByTime;
 
   String get canParkLabel {
     return switch (canPark) {
-      CanParkStatus.yes => 'Yes',
-      CanParkStatus.no => 'No',
+      CanParkStatus.yes => 'Allowed',
+      CanParkStatus.no => 'Not allowed',
       CanParkStatus.unknown => 'Unknown',
     };
   }
 
   String get paymentRequiredLabel {
     return switch (paymentRequired) {
-      PaymentRequiredStatus.yes => 'Yes',
-      PaymentRequiredStatus.no => 'No',
+      PaymentRequiredStatus.yes => 'Paid',
+      PaymentRequiredStatus.no => 'Free',
       PaymentRequiredStatus.unknown => 'Unknown',
     };
   }

@@ -4,7 +4,9 @@ import 'parking_lookup_result.dart';
 import 'parking_query_service.dart';
 
 class ParkingHomeScreen extends StatefulWidget {
-  const ParkingHomeScreen({super.key});
+  const ParkingHomeScreen({this.onOpenScan, super.key});
+
+  final VoidCallback? onOpenScan;
 
   @override
   State<ParkingHomeScreen> createState() => _ParkingHomeScreenState();
@@ -12,6 +14,7 @@ class ParkingHomeScreen extends StatefulWidget {
 
 class _ParkingHomeScreenState extends State<ParkingHomeScreen> {
   final _controller = TextEditingController();
+  final _locationFocusNode = FocusNode();
   final _service = ParkingQueryService();
 
   ParkingLookupResult? _result;
@@ -21,7 +24,12 @@ class _ParkingHomeScreenState extends State<ParkingHomeScreen> {
   @override
   void dispose() {
     _controller.dispose();
+    _locationFocusNode.dispose();
     super.dispose();
+  }
+
+  void _focusManualLocation() {
+    _locationFocusNode.requestFocus();
   }
 
   Future<void> _search() async {
@@ -47,62 +55,72 @@ class _ParkingHomeScreenState extends State<ParkingHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('ParkPal')),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            Text(
-              'Know before you park.',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Enter a road or location to check ParkPal’s current parking intelligence.',
-            ),
-            const SizedBox(height: 24),
-            TextField(
-              controller: _controller,
-              textInputAction: TextInputAction.search,
-              decoration: const InputDecoration(
-                labelText: 'Road or location',
-                hintText: 'e.g. Kensington Road',
-                border: OutlineInputBorder(),
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        Text(
+          'Know before you park.',
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w700,
               ),
-              onSubmitted: (_) => _search(),
-            ),
-            const SizedBox(height: 12),
-            FilledButton(
-              onPressed: _isLoading ? null : _search,
-              child: _isLoading
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Can I park here?'),
-            ),
-            OutlinedButton.icon(
-              onPressed: null,
-              icon: const Icon(Icons.my_location),
-              label: const Text('Use GPS location — coming soon'),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 16),
-              Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            ],
-            const SizedBox(height: 24),
-            ParkingResultCard(result: _result ?? ParkingLookupResult.unknown()),
-            const SizedBox(height: 24),
-            const Text(
-              'ParkPal guidance is informational. Always check street signs before parking.',
-              style: TextStyle(fontSize: 12),
-            ),
-          ],
         ),
-      ),
+        const SizedBox(height: 8),
+        const Text(
+          'Check whether ParkPal has enough parking-rule evidence for this location.',
+        ),
+        const SizedBox(height: 20),
+        OutlinedButton.icon(
+          onPressed: null,
+          icon: const Icon(Icons.my_location),
+          label: const Text('Current location — coming soon'),
+        ),
+        OutlinedButton.icon(
+          onPressed: widget.onOpenScan,
+          icon: const Icon(Icons.document_scanner_outlined),
+          label: const Text('Scan or upload sign'),
+        ),
+        OutlinedButton.icon(
+          onPressed: _focusManualLocation,
+          icon: const Icon(Icons.edit_location_alt_outlined),
+          label: const Text('Manual location entry'),
+        ),
+        const SizedBox(height: 20),
+        TextField(
+          controller: _controller,
+          focusNode: _locationFocusNode,
+          textInputAction: TextInputAction.search,
+          decoration: const InputDecoration(
+            labelText: 'Road or location',
+            hintText: 'e.g. Kensington Road',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (_) => _search(),
+        ),
+        const SizedBox(height: 12),
+        FilledButton(
+          onPressed: _isLoading ? null : _search,
+          child: _isLoading
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Can I park here?'),
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 16),
+          Text(
+            _error!,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ],
+        const SizedBox(height: 24),
+        ParkingResultCard(result: _result ?? ParkingLookupResult.unknown()),
+        const SizedBox(height: 24),
+        const Text(
+          'ParkPal guidance is informational. Always check street signs before parking.',
+          style: TextStyle(fontSize: 12),
+        ),
+      ],
     );
   }
 }
@@ -121,19 +139,17 @@ class ParkingResultCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Can park: ${result.canParkLabel}',
+              'Parking status: ${result.canParkLabel}',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
             ),
             const SizedBox(height: 12),
             _ResultRow(label: 'Rule summary', value: result.ruleSummary),
-            _ResultRow(label: 'Time window', value: result.timeWindow),
-            _ResultRow(
-              label: 'Payment required',
-              value: result.paymentRequiredLabel,
-            ),
-            _ResultRow(label: 'Risk level', value: result.riskLevel),
+            _ResultRow(label: 'Time limit', value: result.timeWindow),
+            _ResultRow(label: 'Paid/free', value: result.paymentRequiredLabel),
+            _ResultRow(label: 'Risk warning', value: result.riskLevel),
+            _ResultRow(label: 'Leave-by time', value: result.leaveByTime),
             _ResultRow(
               label: 'Confidence score',
               value: result.confidenceScore.toStringAsFixed(2),
