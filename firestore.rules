@@ -114,9 +114,11 @@ service cloud.firestore {
     match /parkpal_queries/{queryId} {
       allow read: if isAdmin()
         || (signedIn() && resource.data.userId == request.auth.uid);
-      allow create: if signedIn()
-        && request.resource.data.queryId == queryId
-        && request.resource.data.userId == request.auth.uid;
+      allow create: if request.resource.data.queryId == queryId
+        && (
+          (signedIn() && request.resource.data.userId == request.auth.uid)
+          || (!signedIn() && request.resource.data.userId == null)
+        );
       allow update, delete: if isAdmin();
     }
 

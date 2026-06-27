@@ -4,10 +4,14 @@ ParkPal is a standalone Circum company product for parking, loading, and roadsid
 
 Positioning: **Know before you park.**
 
-This repository currently contains the Firebase database foundation only. It does not include the full app UI, payments, subscriptions, AI interpretation, or Circum integration.
+This repository currently contains the Firebase database foundation and the first minimal MVP app shell. It does not include payments, subscriptions, AI interpretation, or Circum integration.
 
 ## What is included
 
+- A basic ParkPal Flutter app shell.
+- A manual "Can I park here?" location/road-name search flow.
+- A parking result card with risk, confidence, time window, payment status, and evidence source.
+- Firestore read/query logging service code with safe Unknown fallback.
 - Firebase config placeholders for Firestore, Storage, and local emulators.
 - Strict draft Firestore security rules.
 - Strict draft Firebase Storage rules.
@@ -82,14 +86,17 @@ firebase deploy --only firestore:rules,firestore:indexes,storage
 
 ## Dart / Flutter setup
 
-The model layer is plain Dart so it can be reused by the planned Flutter iOS, Android, and future web/admin surfaces.
+The model and MVP app shell are written for Flutter so they can be reused by the planned iOS, Android, and future web/admin surfaces.
 
 When Flutter is installed, run:
 
 ```sh
 flutter pub get
 flutter analyze
+flutter run
 ```
+
+Try the seed-backed flow with a road such as `Kensington Road` after the seed data has been imported into the connected Firebase project.
 
 Future app startup can pass environment values with:
 
