@@ -1,7 +1,7 @@
 import 'package:test/test.dart';
 
-import '../lib/data/firestore_collections.dart';
-import '../lib/data/storage_paths.dart';
+import 'package:parkpal/data/firestore_collections.dart';
+import 'package:parkpal/data/storage_paths.dart';
 
 void main() {
   test('core collection names are stable', () {

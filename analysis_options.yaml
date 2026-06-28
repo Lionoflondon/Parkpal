@@ -2,4 +2,7 @@ include: package:lints/recommended.yaml
 
 linter:
   rules:
+    # Firestore wire values intentionally use snake_case enum names so
+    # Enum.name serializes to the existing database schema without mapping glue.
+    constant_identifier_names: false
     prefer_single_quotes: true
