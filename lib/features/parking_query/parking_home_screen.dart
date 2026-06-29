@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../sign_capture/sign_capture_screen.dart';
 import 'parking_lookup_result.dart';
 import 'parking_query_service.dart';
 
@@ -73,6 +74,17 @@ class _ParkingHomeScreenState extends State<ParkingHomeScreen> {
           onPressed: null,
           icon: const Icon(Icons.my_location),
           label: const Text('Current location — coming soon'),
+        ),
+        OutlinedButton.icon(
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const SignCaptureScreen(),
+              ),
+            );
+          },
+          icon: const Icon(Icons.add_a_photo),
+          label: const Text("Add a sign you've seen"),
         ),
         OutlinedButton.icon(
           onPressed: widget.onOpenScan,
