@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'parkpal_shell.dart';
+import 'parkpal_theme.dart';
 
 class ParkPalApp extends StatelessWidget {
   const ParkPalApp({super.key});
@@ -10,10 +11,7 @@ class ParkPalApp extends StatelessWidget {
     return MaterialApp(
       title: 'ParkPal',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF145A32)),
-        useMaterial3: true,
-      ),
+      theme: buildParkPalTheme(),
       home: const ParkPalShell(),
     );
   }

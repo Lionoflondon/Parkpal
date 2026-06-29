@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../features/history/parking_history_screen.dart';
 import '../features/parking_query/parking_home_screen.dart';
-import '../features/parking_query/parking_result_screen.dart';
-import '../features/placeholders/saved_locations_screen.dart';
-import '../features/placeholders/scan_sign_screen.dart';
-import '../features/placeholders/settings_screen.dart';
+import '../features/scan/scan_coming_soon_screen.dart';
+import 'parkpal_theme.dart';
 
 class ParkPalShell extends StatefulWidget {
   const ParkPalShell({super.key});
@@ -16,53 +15,66 @@ class ParkPalShell extends StatefulWidget {
 class _ParkPalShellState extends State<ParkPalShell> {
   int _selectedIndex = 0;
 
-  void _selectTab(int index) {
+  void _onDestinationSelected(int index) {
+    if (index == 1) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ScanComingSoonScreen()),
+      );
+      return;
+    }
+    if (index == 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Account is coming soon.')),
+      );
+      return;
+    }
     setState(() => _selectedIndex = index);
   }
 
   @override
   Widget build(BuildContext context) {
-    final screens = [
-      ParkingHomeScreen(onOpenScan: () => _selectTab(1)),
-      const ScanSignScreen(),
-      const ParkingResultScreen(),
-      const SavedLocationsScreen(),
-      const SettingsScreen(),
+    final pages = [
+      ParkingHomeScreen(onOpenScan: () => _onDestinationSelected(1)),
+      const SizedBox.shrink(),
+      const ParkingHistoryScreen(),
+      const SizedBox.shrink(),
     ];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('ParkPal')),
-      body: SafeArea(child: screens[_selectedIndex]),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: _selectTab,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Home',
+      body: SafeArea(child: pages[_selectedIndex]),
+      bottomNavigationBar: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: NavigationBar(
+            selectedIndex: _selectedIndex,
+            onDestinationSelected: _onDestinationSelected,
+            backgroundColor: Colors.white.withValues(alpha: 0.94),
+            indicatorColor: ParkPalColors.mint100,
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.home_outlined),
+                selectedIcon: Icon(Icons.home),
+                label: 'Home',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.document_scanner_outlined),
+                selectedIcon: Icon(Icons.document_scanner),
+                label: 'Scan',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.history_outlined),
+                selectedIcon: Icon(Icons.history),
+                label: 'History',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.person_outline),
+                selectedIcon: Icon(Icons.person),
+                label: 'Account',
+              ),
+            ],
           ),
-          NavigationDestination(
-            icon: Icon(Icons.document_scanner_outlined),
-            selectedIcon: Icon(Icons.document_scanner),
-            label: 'Scan',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.local_parking_outlined),
-            selectedIcon: Icon(Icons.local_parking),
-            label: 'Result',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.bookmark_border),
-            selectedIcon: Icon(Icons.bookmark),
-            label: 'Saved',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings),
-            label: 'Settings',
-          ),
-        ],
+        ),
       ),
     );
   }
