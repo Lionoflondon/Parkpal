@@ -1,6 +1,16 @@
 enum CanParkStatus { yes, no, unknown }
+
 enum PaymentRequiredStatus { yes, no, unknown }
-enum ParkingEvidenceSource { seedData, verifiedSign, councilData, userReport, none }
+
+enum ParkingEvidenceSource {
+  adminVerifiedRule,
+  seedData,
+  verifiedSign,
+  councilData,
+  parkpalConnect,
+  userReport,
+  none,
+}
 
 class ParkingLookupResult {
   const ParkingLookupResult({
@@ -11,6 +21,7 @@ class ParkingLookupResult {
     required this.riskLevel,
     required this.confidenceScore,
     required this.evidenceSource,
+    required this.evidenceReason,
     this.leaveByTime = 'Unknown',
   });
 
@@ -24,6 +35,7 @@ class ParkingLookupResult {
       riskLevel: 'Unknown',
       confidenceScore: 0,
       evidenceSource: ParkingEvidenceSource.none,
+      evidenceReason: 'No matching verified or imported evidence found.',
       leaveByTime: 'Unknown',
     );
   }
@@ -35,6 +47,7 @@ class ParkingLookupResult {
   final String riskLevel;
   final double confidenceScore;
   final ParkingEvidenceSource evidenceSource;
+  final String evidenceReason;
   final String leaveByTime;
 
   String get canParkLabel {
@@ -55,9 +68,11 @@ class ParkingLookupResult {
 
   String get evidenceSourceLabel {
     return switch (evidenceSource) {
+      ParkingEvidenceSource.adminVerifiedRule => 'admin-verified rule',
       ParkingEvidenceSource.seedData => 'seed data',
       ParkingEvidenceSource.verifiedSign => 'verified sign',
       ParkingEvidenceSource.councilData => 'council data',
+      ParkingEvidenceSource.parkpalConnect => 'ParkPal Connect source',
       ParkingEvidenceSource.userReport => 'user report',
       ParkingEvidenceSource.none => 'none',
     };

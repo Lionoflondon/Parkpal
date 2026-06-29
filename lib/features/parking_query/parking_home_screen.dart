@@ -170,6 +170,7 @@ class ParkingResultCard extends StatelessWidget {
               label: 'Evidence source',
               value: result.evidenceSourceLabel,
             ),
+            _ResultRow(label: 'Evidence reason', value: result.evidenceReason),
           ],
         ),
       ),

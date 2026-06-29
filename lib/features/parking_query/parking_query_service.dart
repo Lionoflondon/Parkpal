@@ -23,9 +23,11 @@ class ParkingQueryService {
     if (firestore == null) return ParkingLookupResult.unknown();
 
     final normalizedQuery = _normalize(trimmedQuery);
-    final result = await _lookupRoad(firestore, normalizedQuery) ??
-        await _lookupSign(firestore, trimmedQuery) ??
+    final result = await _lookupVerifiedSign(firestore, trimmedQuery) ??
+        await _lookupRoad(firestore, normalizedQuery) ??
         await _lookupZone(firestore, trimmedQuery) ??
+        await _lookupConnectImport(firestore, trimmedQuery) ??
+        await _lookupUnverifiedSignal(firestore, trimmedQuery) ??
         ParkingLookupResult.unknown();
 
     await _logQuery(
@@ -73,41 +75,50 @@ class ParkingQueryService {
       riskLevel: risk,
       confidenceScore: (data['confidenceScore'] as num?)?.toDouble() ?? 0,
       evidenceSource: ParkingEvidenceSource.seedData,
+      evidenceReason:
+          'Matched road-level intelligence. Verified signs and admin rules still take priority.',
     );
   }
 
-  Future<ParkingLookupResult?> _lookupSign(
+  Future<ParkingLookupResult?> _lookupVerifiedSign(
     FirebaseFirestore firestore,
     String queryText,
   ) async {
     final snapshot = await firestore
         .collection(ParkPalCollections.signs)
         .where('streetName', isEqualTo: queryText)
-        .where('verificationStatus', whereIn: ['verified', 'pending'])
+        .where('verificationStatus', isEqualTo: 'verified')
         .limit(1)
         .get();
 
     if (snapshot.docs.isEmpty) return null;
 
-    final data = snapshot.docs.first.data();
-    final isVerified = data['verificationStatus'] == 'verified';
+    final docs = snapshot.docs
+        .where((doc) => doc.data()['source'] != 'imported_dataset')
+        .toList(growable: false);
+    if (docs.isEmpty) return null;
+
+    final data = docs.first.data();
+    final isAdmin = data['capturedByRole'] == 'admin';
     final parkingAllowed = data['parkingAllowed'] as bool?;
     final paymentRequired = (data['permitRequired'] == true)
         ? PaymentRequiredStatus.yes
         : PaymentRequiredStatus.unknown;
 
     return ParkingLookupResult(
-      canPark: isVerified ? _canParkFromBool(parkingAllowed) : CanParkStatus.unknown,
+      canPark: _canParkFromBool(parkingAllowed),
       ruleSummary: data['restrictionSummary'] as String? ??
-          'Sign data found, but ParkPal needs more verification before making a confident claim.',
+          'Verified ParkPal sign evidence found for this location.',
       timeWindow: data['activeHours'] as String? ?? 'Unknown',
       paymentRequired: paymentRequired,
-      riskLevel: isVerified ? 'Medium' : 'Unknown',
-      confidenceScore: isVerified
-          ? ((data['confidenceScore'] as num?)?.toDouble() ?? 0)
-          : 0,
-      evidenceSource:
-          isVerified ? ParkingEvidenceSource.verifiedSign : ParkingEvidenceSource.seedData,
+      riskLevel: 'Medium',
+      confidenceScore: (data['confidenceScore'] as num?)?.toDouble() ?? 0.9,
+      evidenceSource: isAdmin
+          ? ParkingEvidenceSource.adminVerifiedRule
+          : ParkingEvidenceSource.verifiedSign,
+      evidenceReason: isAdmin
+          ? 'Matched an admin-verified ParkPal rule. This is the highest-ranked evidence.'
+          : 'Matched a verified ParkPal sign capture. Imported Connect data cannot override this.',
     );
   }
 
@@ -140,6 +151,89 @@ class ParkingQueryService {
       riskLevel: canPark == CanParkStatus.no ? 'High' : 'Unknown',
       confidenceScore: (data['confidenceScore'] as num?)?.toDouble() ?? 0,
       evidenceSource: ParkingEvidenceSource.seedData,
+      evidenceReason:
+          'Matched zone/council intelligence. Verified signs and admin rules still take priority.',
+    );
+  }
+
+  Future<ParkingLookupResult?> _lookupConnectImport(
+    FirebaseFirestore firestore,
+    String queryText,
+  ) async {
+    final snapshot = await firestore
+        .collection(ParkPalCollections.signs)
+        .where('streetName', isEqualTo: queryText)
+        .limit(10)
+        .get();
+
+    if (snapshot.docs.isEmpty) return null;
+
+    final importedDocs = snapshot.docs
+        .where((doc) => doc.data()['source'] == 'imported_dataset')
+        .toList(growable: false);
+    if (importedDocs.isEmpty) return null;
+
+    final doc = importedDocs.first;
+    final data = doc.data();
+    final confidenceState =
+        data['confidenceState'] as String? ?? 'official_unverified_field';
+    if (confidenceState == 'conflict') {
+      return ParkingLookupResult(
+        canPark: CanParkStatus.unknown,
+        ruleSummary:
+            'Imported council/open-data evidence conflicts with field evidence and needs admin review.',
+        timeWindow: data['activeHours'] as String? ?? 'Unknown',
+        paymentRequired: _paymentFromPermit(data['permitRequired'] as bool?),
+        riskLevel: 'Unknown',
+        confidenceScore: 0.25,
+        evidenceSource: ParkingEvidenceSource.parkpalConnect,
+        evidenceReason:
+            'Matched ParkPal Connect import ${doc.id}, but it is marked Conflict.',
+      );
+    }
+
+    return ParkingLookupResult(
+      canPark: _canParkFromBool(data['parkingAllowed'] as bool?),
+      ruleSummary: data['restrictionSummary'] as String? ??
+          data['restrictionType'] as String? ??
+          'Council/open-data restriction imported by ParkPal Connect.',
+      timeWindow: data['activeHours'] as String? ?? 'Unknown',
+      paymentRequired: _paymentFromPermit(data['permitRequired'] as bool?),
+      riskLevel: _riskFromImportedRecord(data),
+      confidenceScore: (data['confidenceScore'] as num?)?.toDouble() ??
+          _confidenceFromState(confidenceState),
+      evidenceSource: ParkingEvidenceSource.parkpalConnect,
+      evidenceReason:
+          'Matched ParkPal Connect source "${data['sourceName'] ?? 'unknown'}" with confidence state $confidenceState. Higher-priority verified ParkPal evidence was not found.',
+    );
+  }
+
+  Future<ParkingLookupResult?> _lookupUnverifiedSignal(
+    FirebaseFirestore firestore,
+    String queryText,
+  ) async {
+    final snapshot = await firestore
+        .collection(ParkPalCollections.signs)
+        .where('streetName', isEqualTo: queryText)
+        .where('verificationStatus', isEqualTo: 'pending')
+        .limit(1)
+        .get();
+
+    if (snapshot.docs.isEmpty) return null;
+    final data = snapshot.docs.first.data();
+    if (data['source'] == 'imported_dataset') return null;
+
+    return ParkingLookupResult(
+      canPark: CanParkStatus.unknown,
+      ruleSummary:
+          'Unverified ParkPal field signal found. ParkPal needs review before making a confident claim.',
+      timeWindow: data['activeHours'] as String? ?? 'Unknown',
+      paymentRequired: PaymentRequiredStatus.unknown,
+      riskLevel: 'Unknown',
+      confidenceScore: 0.2,
+      evidenceSource: ParkingEvidenceSource.userReport,
+      evidenceReason:
+          'Matched a user-submitted or Pioneer signal that has not been verified yet.',
     );
   }
 
@@ -181,5 +275,31 @@ class ParkingQueryService {
     if (value == true) return CanParkStatus.yes;
     if (value == false) return CanParkStatus.no;
     return CanParkStatus.unknown;
+  }
+
+  PaymentRequiredStatus _paymentFromPermit(bool? permitRequired) {
+    if (permitRequired == true) return PaymentRequiredStatus.yes;
+    if (permitRequired == false) return PaymentRequiredStatus.unknown;
+    return PaymentRequiredStatus.unknown;
+  }
+
+  String _riskFromImportedRecord(Map<String, Object?> data) {
+    if (data['redRoute'] == true ||
+        data['busLane'] == true ||
+        data['schoolStreet'] == true) {
+      return 'High';
+    }
+    if (data['parkingAllowed'] == false) return 'High';
+    return 'Medium';
+  }
+
+  double _confidenceFromState(String state) {
+    return switch (state) {
+      'verified_plus' => 0.85,
+      'field_verified' => 0.75,
+      'official_unverified_field' => 0.65,
+      'conflict' => 0.25,
+      _ => 0.5,
+    };
   }
 }
