@@ -127,6 +127,34 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    match /parkpalAdminUsers/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if signedIn()
+        && request.query.limit != null
+        && request.query.limit <= 1;
+      allow create: if isOwner(userId)
+        && request.resource.data.uid == userId
+        && request.resource.data.email is string
+        && request.resource.data.role == 'superAdmin'
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdBy == 'bootstrap'
+        && request.resource.data.keys().hasOnly([
+          'uid',
+          'email',
+          'displayName',
+          'role',
+          'status',
+          'createdBy',
+          'createdAt',
+          'lastLoginAt'
+        ]);
+      allow update: if isOwner(userId)
+        && resource.data.status == 'active'
+        && request.resource.data.diff(resource.data).changedKeys()
+          .hasOnly(['lastLoginAt']);
+      allow update, delete: if isAdmin();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

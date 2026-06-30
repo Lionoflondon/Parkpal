@@ -52,6 +52,7 @@ class _ParkPalAdminAuthGateState extends State<ParkPalAdminAuthGate> {
     if (!mounted) return;
     setState(() {
       _role = access.role;
+      _error = access.reason == 'not_signed_in' ? null : access.message;
       _loading = false;
     });
   }
@@ -72,16 +73,18 @@ class _ParkPalAdminAuthGateState extends State<ParkPalAdminAuthGate> {
       if (!mounted) return;
       setState(() {
         _role = access.role;
-        _error = !access.allowed
-            ? 'This account is not authorised for ParkPal Admin.'
-            : null;
+        _error = !access.allowed ? access.message : null;
       });
       if (access.bootstrapped && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('First Super Admin created.')),
+          SnackBar(content: Text(access.message)),
         );
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
+      // ignore: avoid_print
+      print('ParkPal Admin sign-in failure: $error');
+      // ignore: avoid_print
+      print(stackTrace);
       if (!mounted) return;
       setState(() => _error = 'Could not sign in to ParkPal Admin.');
     } finally {

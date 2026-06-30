@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 
+import '../firebase/parkpal_firebase_options.dart';
+
 class ParkPalAdminCollections {
   const ParkPalAdminCollections._();
 
@@ -19,11 +21,15 @@ class ParkPalAdminAccess {
     required this.allowed,
     this.role,
     this.bootstrapped = false,
+    this.reason = 'not_authorised',
+    this.message = 'This account is not authorised for ParkPal Admin.',
   });
 
   final bool allowed;
   final String? role;
   final bool bootstrapped;
+  final String reason;
+  final String message;
 }
 
 class ParkPalAdminMetrics {
@@ -81,7 +87,8 @@ class ParkPalAdminDataService {
     try {
       await _ensureFirebase();
       return _auth ?? FirebaseAuth.instance;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _logAdminFailure('firebase_auth_init_failed', error, stackTrace);
       return null;
     }
   }
@@ -95,12 +102,29 @@ class ParkPalAdminDataService {
     try {
       final auth = await this.auth();
       final user = auth?.currentUser;
-      if (user == null) return const ParkPalAdminAccess(allowed: false);
+      if (user == null) {
+        return const ParkPalAdminAccess(
+          allowed: false,
+          reason: 'not_signed_in',
+          message: 'Sign in to continue to ParkPal Admin.',
+        );
+      }
       final firestore = await _safeFirestore();
-      if (firestore == null) return const ParkPalAdminAccess(allowed: false);
+      if (firestore == null) {
+        return const ParkPalAdminAccess(
+          allowed: false,
+          reason: 'firestore_unavailable',
+          message: 'ParkPal Admin could not connect to Firestore.',
+        );
+      }
       return await _resolveAdminAccess(firestore, user);
-    } catch (_) {
-      return const ParkPalAdminAccess(allowed: false);
+    } catch (error, stackTrace) {
+      _logAdminFailure('admin_access_check_failed', error, stackTrace);
+      return ParkPalAdminAccess(
+        allowed: false,
+        reason: 'admin_access_check_failed',
+        message: _friendlyError(error),
+      );
     }
   }
 
@@ -108,48 +132,61 @@ class ParkPalAdminDataService {
     FirebaseFirestore firestore,
     User user,
   ) async {
-    return firestore.runTransaction((transaction) async {
-      final admins = firestore.collection(ParkPalAdminCollections.adminUsers);
-      final existingAdmins = await admins.limit(1).get();
-      final adminRef = admins.doc(user.uid);
+    final admins = firestore.collection(ParkPalAdminCollections.adminUsers);
+    final existingAdmins = await admins.limit(1).get();
+    final adminRef = admins.doc(user.uid);
 
-      if (existingAdmins.docs.isEmpty) {
-        transaction.set(adminRef, {
-          'uid': user.uid,
-          'email': user.email,
-          'displayName': user.displayName,
-          'role': 'superAdmin',
-          'status': 'active',
-          'createdAt': FieldValue.serverTimestamp(),
-          'createdBy': 'bootstrap',
-          'lastLoginAt': FieldValue.serverTimestamp(),
-        });
-        return const ParkPalAdminAccess(
-          allowed: true,
-          role: 'superAdmin',
-          bootstrapped: true,
-        );
-      }
+    if (existingAdmins.docs.isEmpty) {
+      await adminRef.set({
+        'uid': user.uid,
+        'email': user.email,
+        'displayName': user.displayName,
+        'role': 'superAdmin',
+        'status': 'active',
+        'createdBy': 'bootstrap',
+        'createdAt': FieldValue.serverTimestamp(),
+        'lastLoginAt': FieldValue.serverTimestamp(),
+      });
+      return const ParkPalAdminAccess(
+        allowed: true,
+        role: 'superAdmin',
+        bootstrapped: true,
+        reason: 'bootstrap_created',
+        message: 'First Super Admin created.',
+      );
+    }
 
-      final doc = await firestore
-          .collection(ParkPalAdminCollections.adminUsers)
-          .doc(user.uid)
-          .get();
-      final data = doc.data();
-      final role = data?['role'] as String?;
-      final status = data?['status'] as String?;
-      if (status == 'active' && _allowedRoles.contains(role)) {
-        transaction.set(
-            adminRef,
-            {
-              'lastLoginAt': FieldValue.serverTimestamp(),
-            },
-            SetOptions(merge: true));
-        return ParkPalAdminAccess(allowed: true, role: role);
-      }
+    final doc = await adminRef.get();
+    if (!doc.exists) {
+      return const ParkPalAdminAccess(
+        allowed: false,
+        reason: 'admin_doc_missing',
+        message: 'Admin access not granted for this account.',
+      );
+    }
 
-      return const ParkPalAdminAccess(allowed: false);
-    });
+    final data = doc.data();
+    final role = data?['role'] as String?;
+    final status = data?['status'] as String?;
+    if (status == 'active' && _allowedRoles.contains(role)) {
+      await adminRef.set({
+        'lastLoginAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return ParkPalAdminAccess(
+        allowed: true,
+        role: role,
+        reason: 'admin_access_granted',
+        message: 'Admin access granted.',
+      );
+    }
+
+    return ParkPalAdminAccess(
+      allowed: false,
+      reason: 'admin_role_inactive_or_invalid',
+      message: status == 'active'
+          ? 'Admin access not granted for this account role.'
+          : 'This ParkPal Admin account is not active.',
+    );
   }
 
   Future<ParkPalAdminMetrics> fetchDashboardMetrics() async {
@@ -300,15 +337,51 @@ class ParkPalAdminDataService {
     try {
       await _ensureFirebase();
       return _firestore ?? FirebaseFirestore.instance;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _logAdminFailure('firestore_init_failed', error, stackTrace);
       return null;
     }
   }
 
   Future<void> _ensureFirebase() async {
     if (Firebase.apps.isEmpty) {
-      await Firebase.initializeApp();
+      await Firebase.initializeApp(options: ParkPalFirebaseOptions.web);
     }
+  }
+
+  String _friendlyError(Object error) {
+    if (error is FirebaseAuthException) {
+      return switch (error.code) {
+        'invalid-credential' ||
+        'wrong-password' ||
+        'user-not-found' =>
+          'Email or password is incorrect.',
+        'user-disabled' => 'This Firebase Auth user has been disabled.',
+        'operation-not-allowed' =>
+          'Email/password sign-in is not enabled for ParkPal Admin.',
+        _ => 'Could not sign in to ParkPal Admin.',
+      };
+    }
+    if (error is FirebaseException) {
+      return switch (error.code) {
+        'permission-denied' =>
+          'Admin access not granted, or Firestore rules are blocking this account.',
+        'unavailable' => 'ParkPal Firestore is temporarily unavailable.',
+        _ => 'ParkPal Admin could not verify this account.',
+      };
+    }
+    return 'ParkPal Admin could not verify this account.';
+  }
+
+  void _logAdminFailure(
+    String reason,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    // ignore: avoid_print
+    print('ParkPal Admin login failure [$reason]: $error');
+    // ignore: avoid_print
+    print(stackTrace);
   }
 
   Future<int> _count(
