@@ -99,7 +99,15 @@ class _ParkPalAdminAuthGateState extends State<ParkPalAdminAuthGate> {
     }
 
     if (_role != null) {
-      return ParkPalAdminShell(role: _role!);
+      return ParkPalAdminShell(
+        role: _role!,
+        onSignedOut: () {
+          setState(() {
+            _role = null;
+            _error = null;
+          });
+        },
+      );
     }
 
     return Scaffold(

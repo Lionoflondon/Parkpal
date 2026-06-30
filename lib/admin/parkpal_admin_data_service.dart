@@ -7,12 +7,16 @@ import '../firebase/parkpal_firebase_options.dart';
 class ParkPalAdminCollections {
   const ParkPalAdminCollections._();
 
-  static const partners = 'parkpalPartners';
-  static const locations = 'parkpalLocations';
-  static const bookings = 'parkpalBookings';
-  static const members = 'parkpalMembers';
-  static const payments = 'parkpalPayments';
-  static const supportTickets = 'parkpalSupportTickets';
+  static const councils = 'parkpal_councils';
+  static const signs = 'parkpal_signs';
+  static const roads = 'parkpal_roads';
+  static const checks = 'parkpal_queries';
+  static const evidence = 'parkpalEvidenceRecords';
+  static const appealSupport = 'parkpalAppealSupportCases';
+  static const reports = 'parkpal_reports';
+  static const irisReview = 'parkpalIrisReviewQueue';
+  static const contributors = 'parkpal_contributors';
+  static const alerts = 'parkpalAdminAlerts';
   static const adminUsers = 'parkpalAdminUsers';
 }
 
@@ -32,35 +36,47 @@ class ParkPalAdminAccess {
   final String message;
 }
 
+class ParkPalAdminPasswordResult {
+  const ParkPalAdminPasswordResult({
+    required this.success,
+    required this.message,
+    this.requiresSignIn = false,
+  });
+
+  final bool success;
+  final String message;
+  final bool requiresSignIn;
+}
+
 class ParkPalAdminMetrics {
   const ParkPalAdminMetrics({
-    required this.liveBookings,
-    required this.pendingPartners,
-    required this.activePartners,
-    required this.activeLocations,
-    required this.availableSpaces,
-    required this.revenueToday,
-    required this.partnerApplications,
+    required this.totalParkingChecks,
+    required this.reviewNeededChecks,
+    required this.verifiedSigns,
+    required this.councilRulesLoaded,
+    required this.evidenceRecords,
+    required this.appealSupportCases,
+    required this.activeUsers,
     required this.alerts,
   });
 
-  final int liveBookings;
-  final int pendingPartners;
-  final int activePartners;
-  final int activeLocations;
-  final int availableSpaces;
-  final double revenueToday;
-  final int partnerApplications;
+  final int totalParkingChecks;
+  final int reviewNeededChecks;
+  final int verifiedSigns;
+  final int councilRulesLoaded;
+  final int evidenceRecords;
+  final int appealSupportCases;
+  final int activeUsers;
   final int alerts;
 
   static const empty = ParkPalAdminMetrics(
-    liveBookings: 0,
-    pendingPartners: 0,
-    activePartners: 0,
-    activeLocations: 0,
-    availableSpaces: 0,
-    revenueToday: 0,
-    partnerApplications: 0,
+    totalParkingChecks: 0,
+    reviewNeededChecks: 0,
+    verifiedSigns: 0,
+    councilRulesLoaded: 0,
+    evidenceRecords: 0,
+    appealSupportCases: 0,
+    activeUsers: 0,
     alerts: 0,
   );
 }
@@ -96,6 +112,56 @@ class ParkPalAdminDataService {
   Future<String?> currentAdminRole() async {
     final access = await currentAdminAccess();
     return access.role;
+  }
+
+  Future<String?> currentAdminEmail() async {
+    final auth = await this.auth();
+    return auth?.currentUser?.email;
+  }
+
+  Future<void> signOut() async {
+    final auth = await this.auth();
+    await auth?.signOut();
+  }
+
+  Future<ParkPalAdminPasswordResult> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      final auth = await this.auth();
+      final user = auth?.currentUser;
+      final email = user?.email;
+      if (user == null || email == null || email.isEmpty) {
+        return const ParkPalAdminPasswordResult(
+          success: false,
+          message: 'Session expired; sign in again.',
+          requiresSignIn: true,
+        );
+      }
+
+      final credential = EmailAuthProvider.credential(
+        email: email,
+        password: currentPassword,
+      );
+      await user.reauthenticateWithCredential(credential);
+      await user.updatePassword(newPassword);
+      return const ParkPalAdminPasswordResult(
+        success: true,
+        message: 'Password updated.',
+      );
+    } on FirebaseAuthException catch (error) {
+      return ParkPalAdminPasswordResult(
+        success: false,
+        message: _friendlyPasswordError(error),
+        requiresSignIn: error.code == 'requires-recent-login',
+      );
+    } catch (_) {
+      return const ParkPalAdminPasswordResult(
+        success: false,
+        message: 'Unknown Firebase Auth error.',
+      );
+    }
   }
 
   Future<ParkPalAdminAccess> currentAdminAccess() async {
@@ -194,59 +260,34 @@ class ParkPalAdminDataService {
       final firestore = await _safeFirestore();
       if (firestore == null) return ParkPalAdminMetrics.empty;
       final results = await Future.wait<int>([
+        _count(firestore, ParkPalAdminCollections.checks),
         _count(
           firestore,
-          ParkPalAdminCollections.bookings,
-          field: 'status',
-          value: 'active',
+          ParkPalAdminCollections.checks,
+          field: 'resultStatus',
+          values: const ['Unknown', 'unknown', 'review_needed'],
         ),
         _count(
           firestore,
-          ParkPalAdminCollections.partners,
-          field: 'status',
-          value: 'pending',
+          ParkPalAdminCollections.signs,
+          field: 'verificationStatus',
+          value: 'verified',
         ),
-        _count(
-          firestore,
-          ParkPalAdminCollections.partners,
-          field: 'status',
-          value: 'active',
-        ),
-        _count(
-          firestore,
-          ParkPalAdminCollections.locations,
-          field: 'active',
-          value: true,
-        ),
-        _sumInt(
-            firestore, ParkPalAdminCollections.locations, 'availableSpaces'),
-        _count(
-          firestore,
-          ParkPalAdminCollections.partners,
-          field: 'status',
-          value: 'pending',
-        ),
-        _count(
-          firestore,
-          ParkPalAdminCollections.supportTickets,
-          field: 'priority',
-          value: 'urgent',
-        ),
+        _count(firestore, ParkPalAdminCollections.councils),
+        _count(firestore, ParkPalAdminCollections.evidence),
+        _count(firestore, ParkPalAdminCollections.appealSupport),
+        _count(firestore, ParkPalAdminCollections.contributors),
+        _count(firestore, ParkPalAdminCollections.alerts),
       ]);
-      final revenue = await _sumDouble(
-        firestore,
-        ParkPalAdminCollections.payments,
-        'amountToday',
-      );
       return ParkPalAdminMetrics(
-        liveBookings: results[0],
-        pendingPartners: results[1],
-        activePartners: results[2],
-        activeLocations: results[3],
-        availableSpaces: results[4],
-        revenueToday: revenue,
-        partnerApplications: results[5],
-        alerts: results[6],
+        totalParkingChecks: results[0],
+        reviewNeededChecks: results[1],
+        verifiedSigns: results[2],
+        councilRulesLoaded: results[3],
+        evidenceRecords: results[4],
+        appealSupportCases: results[5],
+        activeUsers: results[6],
+        alerts: results[7],
       );
     } catch (_) {
       return ParkPalAdminMetrics.empty;
@@ -263,73 +304,6 @@ class ParkPalAdminDataService {
           .toList(growable: false);
     } catch (_) {
       return const [];
-    }
-  }
-
-  Future<bool> updatePartnerStatus({
-    required String partnerId,
-    required String status,
-    required String onboardingStatus,
-  }) async {
-    try {
-      final firestore = await _safeFirestore();
-      if (firestore == null) return false;
-      await firestore
-          .collection(ParkPalAdminCollections.partners)
-          .doc(partnerId)
-          .set({
-        'status': status,
-        'onboardingStatus': onboardingStatus,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<bool> saveLocation({
-    String? locationId,
-    required Map<String, Object?> data,
-  }) async {
-    try {
-      final firestore = await _safeFirestore();
-      if (firestore == null) return false;
-      final collection =
-          firestore.collection(ParkPalAdminCollections.locations);
-      final document = locationId == null || locationId.isEmpty
-          ? collection.doc()
-          : collection.doc(locationId);
-      await document.set({
-        ...data,
-        'locationId': document.id,
-        'updatedAt': FieldValue.serverTimestamp(),
-        if (locationId == null || locationId.isEmpty)
-          'createdAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<bool> updateLocationActive({
-    required String locationId,
-    required bool active,
-  }) async {
-    try {
-      final firestore = await _safeFirestore();
-      if (firestore == null) return false;
-      await firestore
-          .collection(ParkPalAdminCollections.locations)
-          .doc(locationId)
-          .set({
-        'active': active,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      return true;
-    } catch (_) {
-      return false;
     }
   }
 
@@ -373,6 +347,16 @@ class ParkPalAdminDataService {
     return 'ParkPal Admin could not verify this account.';
   }
 
+  String _friendlyPasswordError(FirebaseAuthException error) {
+    return switch (error.code) {
+      'invalid-credential' || 'wrong-password' => 'Incorrect current password.',
+      'weak-password' => 'Password too weak.',
+      'requires-recent-login' => 'Session expired; sign in again.',
+      'network-request-failed' => 'Network error.',
+      _ => 'Unknown Firebase Auth error.',
+    };
+  }
+
   void _logAdminFailure(
     String reason,
     Object error,
@@ -389,34 +373,15 @@ class ParkPalAdminDataService {
     String collection, {
     String? field,
     Object? value,
+    List<Object?>? values,
   }) async {
     Query<Map<String, dynamic>> query = firestore.collection(collection);
-    if (field != null) query = query.where(field, isEqualTo: value);
+    if (field != null && values != null) {
+      query = query.where(field, whereIn: values);
+    } else if (field != null) {
+      query = query.where(field, isEqualTo: value);
+    }
     final snapshot = await query.count().get();
     return snapshot.count ?? 0;
-  }
-
-  Future<int> _sumInt(
-    FirebaseFirestore firestore,
-    String collection,
-    String field,
-  ) async {
-    final snapshot = await firestore.collection(collection).limit(50).get();
-    return snapshot.docs.fold<int>(
-      0,
-      (total, doc) => total + ((doc.data()[field] as num?)?.toInt() ?? 0),
-    );
-  }
-
-  Future<double> _sumDouble(
-    FirebaseFirestore firestore,
-    String collection,
-    String field,
-  ) async {
-    final snapshot = await firestore.collection(collection).limit(50).get();
-    return snapshot.docs.fold<double>(
-      0,
-      (total, doc) => total + ((doc.data()[field] as num?)?.toDouble() ?? 0),
-    );
   }
 }

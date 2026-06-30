@@ -5,27 +5,55 @@ import 'parkpal_admin_theme.dart';
 
 enum ParkPalAdminSection {
   dashboard,
-  partners,
-  locations,
-  bookings,
-  members,
-  payments,
-  support,
-  analytics,
+  councils,
+  signRepository,
+  roadRules,
+  userChecks,
+  evidenceVault,
+  appealSupport,
+  reports,
+  irisReview,
+  adminUsers,
   settings,
 }
 
 class ParkPalAdminShell extends StatefulWidget {
-  const ParkPalAdminShell({required this.role, super.key});
+  const ParkPalAdminShell({
+    required this.role,
+    required this.onSignedOut,
+    super.key,
+  });
 
   final String role;
+  final VoidCallback onSignedOut;
 
   @override
   State<ParkPalAdminShell> createState() => _ParkPalAdminShellState();
 }
 
 class _ParkPalAdminShellState extends State<ParkPalAdminShell> {
+  final _service = ParkPalAdminDataService();
   ParkPalAdminSection _section = ParkPalAdminSection.dashboard;
+
+  Future<void> _signOut() async {
+    await _service.signOut();
+    if (!mounted) return;
+    widget.onSignedOut();
+  }
+
+  Future<void> _showChangePassword() async {
+    final result = await showDialog<ParkPalAdminPasswordResult>(
+      context: context,
+      builder: (context) => _ChangePasswordDialog(service: _service),
+    );
+    if (!mounted || result == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(result.message)),
+    );
+    if (result.success && result.requiresSignIn) {
+      await _signOut();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +67,8 @@ class _ParkPalAdminShellState extends State<ParkPalAdminShell> {
               if (!_canViewSection(widget.role, section)) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                      content: Text('This role cannot access that module.')),
+                    content: Text('This role cannot access that module.'),
+                  ),
                 );
                 return;
               }
@@ -61,7 +90,17 @@ class _ParkPalAdminShellState extends State<ParkPalAdminShell> {
               child: SafeArea(
                 child: Padding(
                   padding: const EdgeInsets.all(28),
-                  child: _pageFor(_section, widget.role),
+                  child: Column(
+                    children: [
+                      _AdminTopBar(
+                        service: _service,
+                        onChangePassword: _showChangePassword,
+                        onSignOut: _signOut,
+                      ),
+                      const SizedBox(height: 18),
+                      Expanded(child: _pageFor(_section, widget.role)),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -74,10 +113,213 @@ class _ParkPalAdminShellState extends State<ParkPalAdminShell> {
   Widget _pageFor(ParkPalAdminSection section, String role) {
     return switch (section) {
       ParkPalAdminSection.dashboard => const _DashboardPage(),
-      ParkPalAdminSection.partners => _PartnerApplicationsPage(role: role),
-      ParkPalAdminSection.locations => _ParkingLocationsPage(role: role),
       _ => _ModulePage(section: section, role: role),
     };
+  }
+}
+
+class _AdminTopBar extends StatelessWidget {
+  const _AdminTopBar({
+    required this.service,
+    required this.onChangePassword,
+    required this.onSignOut,
+  });
+
+  final ParkPalAdminDataService service;
+  final VoidCallback onChangePassword;
+  final VoidCallback onSignOut;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String?>(
+      future: service.currentAdminEmail(),
+      builder: (context, snapshot) {
+        final email = snapshot.data ?? 'Admin account';
+        return Row(
+          children: [
+            const Spacer(),
+            PopupMenuButton<String>(
+              tooltip: 'Account',
+              color: ParkPalAdminColors.panel,
+              onSelected: (value) {
+                if (value == 'password') onChangePassword();
+                if (value == 'signOut') onSignOut();
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem<String>(
+                  enabled: false,
+                  child: Text(
+                    email,
+                    style: adminBody(
+                      color: ParkPalAdminColors.muted,
+                      size: 12,
+                    ),
+                  ),
+                ),
+                const PopupMenuDivider(),
+                const PopupMenuItem<String>(
+                  value: 'password',
+                  child: Text('Change password'),
+                ),
+                const PopupMenuItem<String>(
+                  value: 'signOut',
+                  child: Text('Sign out'),
+                ),
+              ],
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: adminGlassDecoration(),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.account_circle_outlined,
+                      color: ParkPalAdminColors.cyan,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(email, style: adminBody(weight: FontWeight.w700)),
+                    const SizedBox(width: 6),
+                    const Icon(
+                      Icons.keyboard_arrow_down,
+                      color: ParkPalAdminColors.muted,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ChangePasswordDialog extends StatefulWidget {
+  const _ChangePasswordDialog({required this.service});
+
+  final ParkPalAdminDataService service;
+
+  @override
+  State<_ChangePasswordDialog> createState() => _ChangePasswordDialogState();
+}
+
+class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
+  final _current = TextEditingController();
+  final _new = TextEditingController();
+  final _confirm = TextEditingController();
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _current.dispose();
+    _new.dispose();
+    _confirm.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final current = _current.text;
+    final next = _new.text;
+    final confirm = _confirm.text;
+    setState(() => _error = null);
+
+    if (current.isEmpty) {
+      setState(() => _error = 'Current password required.');
+      return;
+    }
+    if (next.length < 7) {
+      setState(() => _error = 'Password too weak.');
+      return;
+    }
+    if (next != confirm) {
+      setState(() => _error = 'New password and confirmation must match.');
+      return;
+    }
+
+    setState(() => _saving = true);
+    final result = await widget.service.changePassword(
+      currentPassword: current,
+      newPassword: next,
+    );
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (result.success) {
+      Navigator.of(context).pop(result);
+    } else {
+      setState(() => _error = result.message);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: adminGlassDecoration(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Change password', style: adminHeading(size: 34)),
+              const SizedBox(height: 8),
+              Text(
+                'Re-enter your current password before setting a new one.',
+                style: adminBody(color: ParkPalAdminColors.muted),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: _current,
+                obscureText: true,
+                decoration:
+                    const InputDecoration(labelText: 'Current password'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _new,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'New password'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _confirm,
+                obscureText: true,
+                decoration:
+                    const InputDecoration(labelText: 'Confirm new password'),
+                onSubmitted: (_) => _saving ? null : _submit(),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Text(_error!, style: adminBody(color: ParkPalAdminColors.red)),
+              ],
+              const SizedBox(height: 22),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed:
+                          _saving ? null : () => Navigator.of(context).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: _saving ? null : _submit,
+                      child: Text(_saving ? 'Updating…' : 'Update password'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -95,14 +337,14 @@ class _AdminSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 280,
+      width: 290,
       padding: const EdgeInsets.all(22),
       color: ParkPalAdminColors.panel,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('ParkPal', style: adminHeading(size: 34)),
-          Text('Operations Admin',
+          Text('Intelligence Admin',
               style: adminBody(color: ParkPalAdminColors.muted)),
           const SizedBox(height: 8),
           Container(
@@ -117,16 +359,22 @@ class _AdminSidebar extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 28),
-          for (final section in ParkPalAdminSection.values)
-            _SidebarItem(
-              section: section,
-              enabled: _canViewSection(role, section),
-              selected: selected == section,
-              onTap: () => onSelected(section),
+          Expanded(
+            child: ListView(
+              children: [
+                for (final section in ParkPalAdminSection.values)
+                  _SidebarItem(
+                    section: section,
+                    enabled: _canViewSection(role, section),
+                    selected: selected == section,
+                    onTap: () => onSelected(section),
+                  ),
+              ],
             ),
-          const Spacer(),
+          ),
+          const SizedBox(height: 14),
           Text(
-            'Separate ParkPal admin surface. No public access routes.',
+            'ParkPal prevents fines by managing sign, rule, council and evidence intelligence.',
             style: adminBody(color: ParkPalAdminColors.muted, size: 12),
           ),
         ],
@@ -168,22 +416,26 @@ class _SidebarItem extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Icon(_iconFor(section),
-                  color: !enabled
-                      ? ParkPalAdminColors.muted.withValues(alpha: 0.38)
-                      : selected
-                          ? ParkPalAdminColors.cyan
-                          : ParkPalAdminColors.muted),
+              Icon(
+                _iconFor(section),
+                color: !enabled
+                    ? ParkPalAdminColors.muted.withValues(alpha: 0.38)
+                    : selected
+                        ? ParkPalAdminColors.cyan
+                        : ParkPalAdminColors.muted,
+              ),
               const SizedBox(width: 12),
-              Text(
-                _titleFor(section),
-                style: adminBody(
-                  color: selected
-                      ? ParkPalAdminColors.text
-                      : enabled
-                          ? ParkPalAdminColors.muted
-                          : ParkPalAdminColors.muted.withValues(alpha: 0.38),
-                  weight: FontWeight.w700,
+              Expanded(
+                child: Text(
+                  _titleFor(section),
+                  style: adminBody(
+                    color: selected
+                        ? ParkPalAdminColors.text
+                        : enabled
+                            ? ParkPalAdminColors.muted
+                            : ParkPalAdminColors.muted.withValues(alpha: 0.38),
+                    weight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
@@ -209,7 +461,7 @@ class _DashboardPage extends StatelessWidget {
             Text('Dashboard', style: adminHeading(size: 46)),
             const SizedBox(height: 8),
             Text(
-              'Live operating view for ParkPal bookings, spaces, partners, revenue and alerts.',
+              'Operating view for parking checks, sign certainty, council rules, evidence records and IRIS review.',
               style: adminBody(color: ParkPalAdminColors.muted),
             ),
             const SizedBox(height: 26),
@@ -218,30 +470,49 @@ class _DashboardPage extends StatelessWidget {
               runSpacing: 16,
               children: [
                 _MetricCard(
-                    label: 'Live bookings', value: '${metrics.liveBookings}'),
+                  label: 'Total parking checks',
+                  value: '${metrics.totalParkingChecks}',
+                ),
                 _MetricCard(
-                    label: 'Pending partners',
-                    value: '${metrics.pendingPartners}'),
+                  label: 'Unknown / review-needed checks',
+                  value: '${metrics.reviewNeededChecks}',
+                  accent: ParkPalAdminColors.amber,
+                ),
                 _MetricCard(
-                    label: 'Active partners',
-                    value: '${metrics.activePartners}'),
+                  label: 'Verified signs',
+                  value: '${metrics.verifiedSigns}',
+                ),
                 _MetricCard(
-                    label: 'Active locations',
-                    value: '${metrics.activeLocations}'),
+                  label: 'Council rules loaded',
+                  value: '${metrics.councilRulesLoaded}',
+                ),
                 _MetricCard(
-                    label: 'Available spaces',
-                    value: '${metrics.availableSpaces}'),
+                  label: 'Evidence records',
+                  value: '${metrics.evidenceRecords}',
+                ),
                 _MetricCard(
-                    label: 'Revenue today',
-                    value: '£${metrics.revenueToday.toStringAsFixed(2)}'),
+                  label: 'Appeal support cases',
+                  value: '${metrics.appealSupportCases}',
+                ),
                 _MetricCard(
-                    label: 'Partner applications',
-                    value: '${metrics.partnerApplications}'),
+                  label: 'Active users',
+                  value: '${metrics.activeUsers}',
+                ),
                 _MetricCard(
-                    label: 'Alerts',
-                    value: '${metrics.alerts}',
-                    accent: ParkPalAdminColors.amber),
+                  label: 'Alerts',
+                  value: '${metrics.alerts}',
+                  accent: ParkPalAdminColors.amber,
+                ),
               ],
+            ),
+            const SizedBox(height: 26),
+            Container(
+              padding: const EdgeInsets.all(22),
+              decoration: adminGlassDecoration(),
+              child: Text(
+                'ParkPal helps users understand roadside restrictions before they walk away. Admin work here is about council data, signs, rules, evidence, review queues and fine-prevention support.',
+                style: adminBody(color: ParkPalAdminColors.muted),
+              ),
             ),
           ],
         );
@@ -302,8 +573,11 @@ class _ModulePage extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: Text(
-                          row['name']?.toString() ??
+                          row['streetName']?.toString() ??
+                              row['councilName']?.toString() ??
+                              row['queryText']?.toString() ??
                               row['title']?.toString() ??
+                              row['email']?.toString() ??
                               row['id'].toString(),
                           style: adminBody(weight: FontWeight.w700),
                         ),
@@ -315,343 +589,6 @@ class _ModulePage extends StatelessWidget {
         );
       },
     );
-  }
-}
-
-class _PartnerApplicationsPage extends StatefulWidget {
-  const _PartnerApplicationsPage({required this.role});
-
-  final String role;
-
-  @override
-  State<_PartnerApplicationsPage> createState() =>
-      _PartnerApplicationsPageState();
-}
-
-class _PartnerApplicationsPageState extends State<_PartnerApplicationsPage> {
-  final _service = ParkPalAdminDataService();
-  late Future<List<Map<String, Object?>>> _partners;
-
-  bool get _canEdit => _canEditPartners(widget.role);
-
-  @override
-  void initState() {
-    super.initState();
-    _partners = _service.fetchModuleRows(ParkPalAdminCollections.partners);
-  }
-
-  Future<void> _setStatus(
-    String partnerId,
-    String status,
-    String onboardingStatus,
-  ) async {
-    if (!_canEdit) return;
-    final ok = await _service.updatePartnerStatus(
-      partnerId: partnerId,
-      status: status,
-      onboardingStatus: onboardingStatus,
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-          content: Text(ok ? 'Partner updated' : 'Could not update partner')),
-    );
-    setState(() {
-      _partners = _service.fetchModuleRows(ParkPalAdminCollections.partners);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<List<Map<String, Object?>>>(
-      future: _partners,
-      builder: (context, snapshot) {
-        final partners = snapshot.data ?? const <Map<String, Object?>>[];
-        return ListView(
-          children: [
-            Text('Partner Applications', style: adminHeading(size: 46)),
-            const SizedBox(height: 8),
-            Text(
-              'Review partner applications, onboarding status, documents and payout readiness.',
-              style: adminBody(color: ParkPalAdminColors.muted),
-            ),
-            const SizedBox(height: 24),
-            if (partners.isEmpty)
-              const _EmptyState(message: 'No partners yet.')
-            else
-              for (final partner in partners)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: _PartnerCard(
-                    partner: partner,
-                    canEdit: _canEdit,
-                    onApprove: () => _setStatus(
-                      partner['id'].toString(),
-                      'active',
-                      'approved',
-                    ),
-                    onReject: () => _setStatus(
-                      partner['id'].toString(),
-                      'rejected',
-                      'rejected',
-                    ),
-                    onSuspend: () => _setStatus(
-                      partner['id'].toString(),
-                      'suspended',
-                      'suspended',
-                    ),
-                    onReactivate: () => _setStatus(
-                      partner['id'].toString(),
-                      'active',
-                      'reactivated',
-                    ),
-                  ),
-                ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _PartnerCard extends StatelessWidget {
-  const _PartnerCard({
-    required this.partner,
-    required this.canEdit,
-    required this.onApprove,
-    required this.onReject,
-    required this.onSuspend,
-    required this.onReactivate,
-  });
-
-  final Map<String, Object?> partner;
-  final bool canEdit;
-  final VoidCallback onApprove;
-  final VoidCallback onReject;
-  final VoidCallback onSuspend;
-  final VoidCallback onReactivate;
-
-  @override
-  Widget build(BuildContext context) {
-    final name = partner['businessName'] ??
-        partner['name'] ??
-        partner['contactName'] ??
-        partner['id'];
-    final status = partner['status']?.toString() ?? 'pending';
-    final onboarding = partner['onboardingStatus']?.toString() ?? 'not started';
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: adminGlassDecoration(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                  child: Text(name.toString(), style: adminHeading(size: 28))),
-              _StatusPill(label: status),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text('Onboarding: $onboarding',
-              style: adminBody(color: ParkPalAdminColors.muted)),
-          Text('Documents: ${partner['documentStatus'] ?? 'pending'}',
-              style: adminBody(color: ParkPalAdminColors.muted)),
-          Text('Payout: ${partner['payoutStatus'] ?? 'not configured'}',
-              style: adminBody(color: ParkPalAdminColors.muted)),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton(
-                  onPressed: canEdit ? onApprove : null,
-                  child: const Text('Approve')),
-              OutlinedButton(
-                  onPressed: canEdit ? onReject : null,
-                  child: const Text('Reject')),
-              OutlinedButton(
-                  onPressed: canEdit ? onSuspend : null,
-                  child: const Text('Suspend')),
-              OutlinedButton(
-                  onPressed: canEdit ? onReactivate : null,
-                  child: const Text('Reactivate')),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ParkingLocationsPage extends StatefulWidget {
-  const _ParkingLocationsPage({required this.role});
-
-  final String role;
-
-  @override
-  State<_ParkingLocationsPage> createState() => _ParkingLocationsPageState();
-}
-
-class _ParkingLocationsPageState extends State<_ParkingLocationsPage> {
-  final _service = ParkPalAdminDataService();
-  final _name = TextEditingController();
-  final _address = TextEditingController();
-  final _capacity = TextEditingController();
-  final _pricePerHour = TextEditingController();
-  final _openingHours = TextEditingController();
-  final _amenities = TextEditingController();
-  final _restrictions = TextEditingController();
-  late Future<List<Map<String, Object?>>> _locations;
-  String? _editingId;
-  bool _active = true;
-
-  bool get _canEdit => _canEditLocations(widget.role);
-
-  @override
-  void initState() {
-    super.initState();
-    _locations = _service.fetchModuleRows(ParkPalAdminCollections.locations);
-  }
-
-  @override
-  void dispose() {
-    _name.dispose();
-    _address.dispose();
-    _capacity.dispose();
-    _pricePerHour.dispose();
-    _openingHours.dispose();
-    _amenities.dispose();
-    _restrictions.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (!_canEdit) return;
-    final ok = await _service.saveLocation(
-      locationId: _editingId,
-      data: {
-        'name': _name.text.trim(),
-        'address': _address.text.trim(),
-        'capacity': int.tryParse(_capacity.text.trim()) ?? 0,
-        'availableSpaces': int.tryParse(_capacity.text.trim()) ?? 0,
-        'pricePerHour': double.tryParse(_pricePerHour.text.trim()) ?? 0,
-        'openingHours': _openingHours.text.trim(),
-        'amenities': _csv(_amenities.text),
-        'restrictions': _csv(_restrictions.text),
-        'active': _active,
-        'status': _active ? 'active' : 'inactive',
-      },
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-          content: Text(ok ? 'Location saved' : 'Could not save location')),
-    );
-    _clearForm();
-    setState(() {
-      _locations = _service.fetchModuleRows(ParkPalAdminCollections.locations);
-    });
-  }
-
-  void _edit(Map<String, Object?> location) {
-    setState(() {
-      _editingId = location['id']?.toString();
-      _name.text = location['name']?.toString() ?? '';
-      _address.text = location['address']?.toString() ?? '';
-      _capacity.text = location['capacity']?.toString() ?? '';
-      _pricePerHour.text = location['pricePerHour']?.toString() ?? '';
-      _openingHours.text = location['openingHours']?.toString() ?? '';
-      _amenities.text = _join(location['amenities']);
-      _restrictions.text = _join(location['restrictions']);
-      _active = location['active'] != false;
-    });
-  }
-
-  void _clearForm() {
-    _editingId = null;
-    _name.clear();
-    _address.clear();
-    _capacity.clear();
-    _pricePerHour.clear();
-    _openingHours.clear();
-    _amenities.clear();
-    _restrictions.clear();
-    _active = true;
-  }
-
-  Future<void> _setActive(String id, bool active) async {
-    if (!_canEdit) return;
-    await _service.updateLocationActive(locationId: id, active: active);
-    setState(() {
-      _locations = _service.fetchModuleRows(ParkPalAdminCollections.locations);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<List<Map<String, Object?>>>(
-      future: _locations,
-      builder: (context, snapshot) {
-        final locations = snapshot.data ?? const <Map<String, Object?>>[];
-        return ListView(
-          children: [
-            Text('Parking Locations', style: adminHeading(size: 46)),
-            const SizedBox(height: 8),
-            Text(
-              'Add and manage car parks, capacity, pricing, opening hours, amenities and restrictions.',
-              style: adminBody(color: ParkPalAdminColors.muted),
-            ),
-            const SizedBox(height: 24),
-            _LocationForm(
-              canEdit: _canEdit,
-              editing: _editingId != null,
-              name: _name,
-              address: _address,
-              capacity: _capacity,
-              pricePerHour: _pricePerHour,
-              openingHours: _openingHours,
-              amenities: _amenities,
-              restrictions: _restrictions,
-              active: _active,
-              onActiveChanged: (value) => setState(() => _active = value),
-              onSave: _save,
-              onCancel: () => setState(_clearForm),
-            ),
-            const SizedBox(height: 24),
-            if (locations.isEmpty)
-              const _EmptyState(message: 'No locations yet.')
-            else
-              for (final location in locations)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _LocationCard(
-                    location: location,
-                    canEdit: _canEdit,
-                    onEdit: () => _edit(location),
-                    onToggle: () => _setActive(
-                      location['id'].toString(),
-                      location['active'] == false,
-                    ),
-                  ),
-                ),
-          ],
-        );
-      },
-    );
-  }
-
-  List<String> _csv(String value) {
-    return value
-        .split(',')
-        .map((item) => item.trim())
-        .where((item) => item.isNotEmpty)
-        .toList(growable: false);
-  }
-
-  String _join(Object? value) {
-    if (value is Iterable) return value.join(', ');
-    return value?.toString() ?? '';
   }
 }
 
@@ -669,7 +606,7 @@ class _MetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 240,
+      width: 250,
       child: Container(
         padding: const EdgeInsets.all(22),
         decoration: adminGlassDecoration(),
@@ -689,191 +626,6 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
-class _LocationForm extends StatelessWidget {
-  const _LocationForm({
-    required this.canEdit,
-    required this.editing,
-    required this.name,
-    required this.address,
-    required this.capacity,
-    required this.pricePerHour,
-    required this.openingHours,
-    required this.amenities,
-    required this.restrictions,
-    required this.active,
-    required this.onActiveChanged,
-    required this.onSave,
-    required this.onCancel,
-  });
-
-  final bool canEdit;
-  final bool editing;
-  final TextEditingController name;
-  final TextEditingController address;
-  final TextEditingController capacity;
-  final TextEditingController pricePerHour;
-  final TextEditingController openingHours;
-  final TextEditingController amenities;
-  final TextEditingController restrictions;
-  final bool active;
-  final ValueChanged<bool> onActiveChanged;
-  final VoidCallback onSave;
-  final VoidCallback onCancel;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: adminGlassDecoration(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(editing ? 'Edit location' : 'Add location',
-              style: adminHeading(size: 28)),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              _Field(width: 260, controller: name, label: 'Location name'),
-              _Field(width: 360, controller: address, label: 'Address'),
-              _Field(width: 160, controller: capacity, label: 'Capacity'),
-              _Field(width: 180, controller: pricePerHour, label: '£ / hour'),
-              _Field(
-                  width: 220, controller: openingHours, label: 'Opening hours'),
-              _Field(width: 320, controller: amenities, label: 'Amenities CSV'),
-              _Field(
-                  width: 320,
-                  controller: restrictions,
-                  label: 'Restrictions CSV'),
-            ],
-          ),
-          const SizedBox(height: 12),
-          SwitchListTile(
-            value: active,
-            onChanged: canEdit ? onActiveChanged : null,
-            title: const Text('Active'),
-            contentPadding: EdgeInsets.zero,
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            children: [
-              FilledButton(
-                  onPressed: canEdit ? onSave : null,
-                  child: Text(editing ? 'Save changes' : 'Add location')),
-              if (editing)
-                OutlinedButton(
-                    onPressed: onCancel, child: const Text('Cancel')),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LocationCard extends StatelessWidget {
-  const _LocationCard({
-    required this.location,
-    required this.canEdit,
-    required this.onEdit,
-    required this.onToggle,
-  });
-
-  final Map<String, Object?> location;
-  final bool canEdit;
-  final VoidCallback onEdit;
-  final VoidCallback onToggle;
-
-  @override
-  Widget build(BuildContext context) {
-    final active = location['active'] != false;
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: adminGlassDecoration(),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(location['name']?.toString() ?? 'Unnamed location',
-                    style: adminHeading(size: 26)),
-                Text(location['address']?.toString() ?? 'No address',
-                    style: adminBody(color: ParkPalAdminColors.muted)),
-                const SizedBox(height: 8),
-                Text(
-                  'Capacity: ${location['capacity'] ?? 0} • £/hr: ${location['pricePerHour'] ?? 0} • Hours: ${location['openingHours'] ?? 'not set'}',
-                  style: adminBody(color: ParkPalAdminColors.muted),
-                ),
-              ],
-            ),
-          ),
-          _StatusPill(label: active ? 'active' : 'inactive'),
-          const SizedBox(width: 12),
-          OutlinedButton(
-              onPressed: canEdit ? onEdit : null, child: const Text('Edit')),
-          const SizedBox(width: 8),
-          OutlinedButton(
-            onPressed: canEdit ? onToggle : null,
-            child: Text(active ? 'Deactivate' : 'Activate'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Field extends StatelessWidget {
-  const _Field({
-    required this.width,
-    required this.controller,
-    required this.label,
-  });
-
-  final double width;
-  final TextEditingController controller;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
-      child: TextField(
-        controller: controller,
-        decoration: InputDecoration(labelText: label),
-      ),
-    );
-  }
-}
-
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = switch (label) {
-      'active' || 'approved' => ParkPalAdminColors.emerald,
-      'pending' => ParkPalAdminColors.amber,
-      'rejected' || 'suspended' => ParkPalAdminColors.red,
-      _ => ParkPalAdminColors.cyan,
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Text(label, style: adminBody(color: color, size: 12)),
-    );
-  }
-}
-
 class _EmptyState extends StatelessWidget {
   const _EmptyState({required this.message});
 
@@ -887,13 +639,13 @@ class _EmptyState extends StatelessWidget {
       decoration: adminGlassDecoration(),
       child: Column(
         children: [
-          const Icon(Icons.inbox_outlined,
+          const Icon(Icons.manage_search_outlined,
               color: ParkPalAdminColors.cyan, size: 38),
           const SizedBox(height: 12),
           Text(message, style: adminHeading(size: 26)),
           const SizedBox(height: 6),
           Text(
-            'ParkPal Firestore is connected. Records will appear here once operational data is added.',
+            'ParkPal Firestore is connected. Intelligence records will appear here once the repository has data for review.',
             textAlign: TextAlign.center,
             style: adminBody(color: ParkPalAdminColors.muted),
           ),
@@ -903,50 +655,41 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-bool _canEditPartners(String role) {
-  return const ['superAdmin', 'admin', 'partnerManager'].contains(role);
-}
-
-bool _canEditLocations(String role) {
-  return const ['superAdmin', 'admin', 'partnerManager'].contains(role);
-}
-
 bool _canViewSection(String role, ParkPalAdminSection section) {
   if (role == 'superAdmin' || role == 'admin') return true;
-  if (role == 'partnerManager') {
-    return const {
-      ParkPalAdminSection.dashboard,
-      ParkPalAdminSection.partners,
-      ParkPalAdminSection.locations,
-    }.contains(section);
-  }
   if (role == 'support') {
     return const {
       ParkPalAdminSection.dashboard,
-      ParkPalAdminSection.bookings,
-      ParkPalAdminSection.support,
+      ParkPalAdminSection.evidenceVault,
+      ParkPalAdminSection.appealSupport,
+      ParkPalAdminSection.reports,
     }.contains(section);
   }
   if (role == 'reviewer') {
     return const {
       ParkPalAdminSection.dashboard,
-      ParkPalAdminSection.support,
-      ParkPalAdminSection.analytics,
+      ParkPalAdminSection.signRepository,
+      ParkPalAdminSection.roadRules,
+      ParkPalAdminSection.irisReview,
+      ParkPalAdminSection.reports,
     }.contains(section);
   }
   if (role == 'pioneerManager') {
     return const {
       ParkPalAdminSection.dashboard,
-      ParkPalAdminSection.partners,
-      ParkPalAdminSection.support,
+      ParkPalAdminSection.signRepository,
+      ParkPalAdminSection.reports,
+      ParkPalAdminSection.irisReview,
     }.contains(section);
   }
   if (role == 'atlasManager') {
     return const {
       ParkPalAdminSection.dashboard,
-      ParkPalAdminSection.locations,
-      ParkPalAdminSection.analytics,
-      ParkPalAdminSection.settings,
+      ParkPalAdminSection.councils,
+      ParkPalAdminSection.signRepository,
+      ParkPalAdminSection.roadRules,
+      ParkPalAdminSection.userChecks,
+      ParkPalAdminSection.irisReview,
     }.contains(section);
   }
   return section == ParkPalAdminSection.dashboard;
@@ -954,10 +697,17 @@ bool _canViewSection(String role, ParkPalAdminSection section) {
 
 String _emptyCopyFor(ParkPalAdminSection section) {
   return switch (section) {
-    ParkPalAdminSection.bookings => 'No bookings yet.',
-    ParkPalAdminSection.partners => 'No partners yet.',
-    ParkPalAdminSection.locations => 'No locations yet.',
-    _ => 'No records yet.',
+    ParkPalAdminSection.councils => 'No council rule sources loaded yet.',
+    ParkPalAdminSection.signRepository => 'No sign records ready for review.',
+    ParkPalAdminSection.roadRules => 'No road rules loaded yet.',
+    ParkPalAdminSection.userChecks => 'No user parking checks recorded yet.',
+    ParkPalAdminSection.evidenceVault => 'No evidence records saved yet.',
+    ParkPalAdminSection.appealSupport => 'No fine support cases yet.',
+    ParkPalAdminSection.reports => 'No user reports awaiting review.',
+    ParkPalAdminSection.irisReview => 'No IRIS review items pending.',
+    ParkPalAdminSection.adminUsers => 'No admin user rows visible.',
+    ParkPalAdminSection.settings => 'No settings records visible.',
+    ParkPalAdminSection.dashboard => 'No dashboard records visible.',
   };
 }
 
@@ -977,95 +727,80 @@ class _ModuleDefinition {
 
 _ModuleDefinition _definitionFor(ParkPalAdminSection section) {
   return switch (section) {
-    ParkPalAdminSection.partners => const _ModuleDefinition(
-        title: 'Partners',
+    ParkPalAdminSection.councils => const _ModuleDefinition(
+        title: 'Councils',
         description:
-            'Partner applications, approvals, documents, profiles and payouts.',
-        collection: ParkPalAdminCollections.partners,
-        capabilities: [
-          'Applications',
-          'Approve',
-          'Reject',
-          'Documents',
-          'Payout status'
-        ],
+            'Manage council metadata, official sources, import status and rule provenance.',
+        collection: ParkPalAdminCollections.councils,
+        capabilities: ['Sources', 'Import status', 'Rule provenance'],
       ),
-    ParkPalAdminSection.locations => const _ModuleDefinition(
-        title: 'Parking Locations',
+    ParkPalAdminSection.signRepository => const _ModuleDefinition(
+        title: 'Sign Repository',
         description:
-            'Car parks, capacity, pricing, opening hours, amenities, photos and restrictions.',
-        collection: ParkPalAdminCollections.locations,
-        capabilities: [
-          'Add/edit',
-          'Capacity',
-          'Pricing',
-          'Opening hours',
-          'Amenities',
-          'Photos',
-          'Restrictions'
-        ],
+            'Review captured signs, verification status, restriction text and source evidence.',
+        collection: ParkPalAdminCollections.signs,
+        capabilities: ['Captured signs', 'Verification', 'Restriction text'],
       ),
-    ParkPalAdminSection.bookings => const _ModuleDefinition(
-        title: 'Bookings',
+    ParkPalAdminSection.roadRules => const _ModuleDefinition(
+        title: 'Road Rules',
         description:
-            'Active, upcoming, completed, cancelled bookings and refunds.',
-        collection: ParkPalAdminCollections.bookings,
-        capabilities: [
-          'Active',
-          'Upcoming',
-          'Completed',
-          'Cancelled',
-          'Refunds'
-        ],
+            'Manage road-level parking intelligence, zones, risk summaries and confidence.',
+        collection: ParkPalAdminCollections.roads,
+        capabilities: ['Road profiles', 'Zones', 'Confidence'],
       ),
-    ParkPalAdminSection.members => const _ModuleDefinition(
-        title: 'Members',
+    ParkPalAdminSection.userChecks => const _ModuleDefinition(
+        title: 'User Checks',
         description:
-            'Member search, vehicles, booking history, wallet/Roth placeholder and support history.',
-        collection: ParkPalAdminCollections.members,
-        capabilities: [
-          'Search',
-          'Vehicles',
-          'Booking history',
-          'Wallet/Roth',
-          'Support history'
-        ],
+            'Review user parking checks, unknown answers and demand hotspots.',
+        collection: ParkPalAdminCollections.checks,
+        capabilities: ['Checks', 'Unknown results', 'Demand hotspots'],
       ),
-    ParkPalAdminSection.payments => const _ModuleDefinition(
-        title: 'Payments',
-        description: 'Stripe, Roth and partner settlement placeholders.',
-        collection: ParkPalAdminCollections.payments,
-        capabilities: ['Stripe', 'Roth', 'Partner settlement'],
-      ),
-    ParkPalAdminSection.support => const _ModuleDefinition(
-        title: 'Support',
-        description: 'Tickets, disputes and incident reports.',
-        collection: ParkPalAdminCollections.supportTickets,
-        capabilities: ['Tickets', 'Disputes', 'Incident reports'],
-      ),
-    ParkPalAdminSection.analytics => const _ModuleDefinition(
-        title: 'Analytics',
+    ParkPalAdminSection.evidenceVault => const _ModuleDefinition(
+        title: 'Evidence Vault',
         description:
-            'Occupancy, revenue, peak hours, conversion and repeat usage.',
-        collection: ParkPalAdminCollections.bookings,
-        capabilities: [
-          'Occupancy',
-          'Revenue',
-          'Peak hours',
-          'Conversion',
-          'Repeat usage'
-        ],
+            'Store time-stamped evidence records for sign certainty and dispute support.',
+        collection: ParkPalAdminCollections.evidence,
+        capabilities: ['Evidence records', 'Snapshots', 'Audit trail'],
+      ),
+    ParkPalAdminSection.appealSupport => const _ModuleDefinition(
+        title: 'Fine / Appeal Support',
+        description:
+            'Track user fine-prevention support, appeal evidence packs and case status.',
+        collection: ParkPalAdminCollections.appealSupport,
+        capabilities: ['Support cases', 'Evidence packs', 'Case status'],
+      ),
+    ParkPalAdminSection.reports => const _ModuleDefinition(
+        title: 'Reports',
+        description:
+            'Review user reports for changed signs, suspensions, enforcement and incorrect rules.',
+        collection: ParkPalAdminCollections.reports,
+        capabilities: ['User reports', 'Suspensions', 'Rule corrections'],
+      ),
+    ParkPalAdminSection.irisReview => const _ModuleDefinition(
+        title: 'IRIS Review',
+        description:
+            'Review uncertain IRIS outcomes, conflicts, stale records and confidence warnings.',
+        collection: ParkPalAdminCollections.irisReview,
+        capabilities: ['Uncertain results', 'Conflicts', 'Stale records'],
+      ),
+    ParkPalAdminSection.adminUsers => const _ModuleDefinition(
+        title: 'Admin Users',
+        description:
+            'Manage ParkPal admin users, roles, access status and permissions.',
+        collection: ParkPalAdminCollections.adminUsers,
+        capabilities: ['Roles', 'Access status', 'Permissions'],
       ),
     ParkPalAdminSection.settings => const _ModuleDefinition(
         title: 'Settings',
-        description: 'Fees, promotions, notifications and admin roles.',
-        collection: ParkPalAdminCollections.adminUsers,
-        capabilities: ['Fees', 'Promotions', 'Notifications', 'Admin roles'],
+        description:
+            'Configure operational thresholds, notifications, review policies and admin controls.',
+        collection: ParkPalAdminCollections.alerts,
+        capabilities: ['Thresholds', 'Notifications', 'Review policies'],
       ),
     ParkPalAdminSection.dashboard => const _ModuleDefinition(
         title: 'Dashboard',
-        description: 'ParkPal operating overview.',
-        collection: ParkPalAdminCollections.bookings,
+        description: 'ParkPal intelligence overview.',
+        collection: ParkPalAdminCollections.checks,
         capabilities: [],
       ),
   };
@@ -1078,13 +813,15 @@ String _titleFor(ParkPalAdminSection section) {
 IconData _iconFor(ParkPalAdminSection section) {
   return switch (section) {
     ParkPalAdminSection.dashboard => Icons.dashboard_outlined,
-    ParkPalAdminSection.partners => Icons.handshake_outlined,
-    ParkPalAdminSection.locations => Icons.local_parking_outlined,
-    ParkPalAdminSection.bookings => Icons.event_available_outlined,
-    ParkPalAdminSection.members => Icons.people_outline,
-    ParkPalAdminSection.payments => Icons.payments_outlined,
-    ParkPalAdminSection.support => Icons.support_agent_outlined,
-    ParkPalAdminSection.analytics => Icons.analytics_outlined,
+    ParkPalAdminSection.councils => Icons.account_balance_outlined,
+    ParkPalAdminSection.signRepository => Icons.traffic_outlined,
+    ParkPalAdminSection.roadRules => Icons.edit_road_outlined,
+    ParkPalAdminSection.userChecks => Icons.fact_check_outlined,
+    ParkPalAdminSection.evidenceVault => Icons.folder_copy_outlined,
+    ParkPalAdminSection.appealSupport => Icons.gavel_outlined,
+    ParkPalAdminSection.reports => Icons.report_problem_outlined,
+    ParkPalAdminSection.irisReview => Icons.visibility_outlined,
+    ParkPalAdminSection.adminUsers => Icons.admin_panel_settings_outlined,
     ParkPalAdminSection.settings => Icons.settings_outlined,
   };
 }
