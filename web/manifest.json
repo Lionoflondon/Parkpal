@@ -1,11 +1,11 @@
 {
-    "name": "parkpal",
-    "short_name": "parkpal",
+    "name": "ParkPal",
+    "short_name": "ParkPal",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#08111F",
+    "theme_color": "#101C2F",
+    "description": "ParkPal — certainty before you walk away.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

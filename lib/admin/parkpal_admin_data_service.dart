@@ -14,6 +14,18 @@ class ParkPalAdminCollections {
   static const adminUsers = 'parkpalAdminUsers';
 }
 
+class ParkPalAdminAccess {
+  const ParkPalAdminAccess({
+    required this.allowed,
+    this.role,
+    this.bootstrapped = false,
+  });
+
+  final bool allowed;
+  final String? role;
+  final bool bootstrapped;
+}
+
 class ParkPalAdminMetrics {
   const ParkPalAdminMetrics({
     required this.liveBookings,
@@ -56,6 +68,14 @@ class ParkPalAdminDataService {
 
   final FirebaseFirestore? _firestore;
   final FirebaseAuth? _auth;
+  static const _allowedRoles = [
+    'superAdmin',
+    'admin',
+    'support',
+    'reviewer',
+    'pioneerManager',
+    'atlasManager',
+  ];
 
   Future<FirebaseAuth?> auth() async {
     try {
@@ -67,25 +87,69 @@ class ParkPalAdminDataService {
   }
 
   Future<String?> currentAdminRole() async {
+    final access = await currentAdminAccess();
+    return access.role;
+  }
+
+  Future<ParkPalAdminAccess> currentAdminAccess() async {
     try {
       final auth = await this.auth();
       final user = auth?.currentUser;
-      if (user == null) return null;
+      if (user == null) return const ParkPalAdminAccess(allowed: false);
       final firestore = await _safeFirestore();
-      if (firestore == null) return null;
+      if (firestore == null) return const ParkPalAdminAccess(allowed: false);
+      return await _resolveAdminAccess(firestore, user);
+    } catch (_) {
+      return const ParkPalAdminAccess(allowed: false);
+    }
+  }
+
+  Future<ParkPalAdminAccess> _resolveAdminAccess(
+    FirebaseFirestore firestore,
+    User user,
+  ) async {
+    return firestore.runTransaction((transaction) async {
+      final admins = firestore.collection(ParkPalAdminCollections.adminUsers);
+      final existingAdmins = await admins.limit(1).get();
+      final adminRef = admins.doc(user.uid);
+
+      if (existingAdmins.docs.isEmpty) {
+        transaction.set(adminRef, {
+          'uid': user.uid,
+          'email': user.email,
+          'displayName': user.displayName,
+          'role': 'superAdmin',
+          'status': 'active',
+          'createdAt': FieldValue.serverTimestamp(),
+          'createdBy': 'bootstrap',
+          'lastLoginAt': FieldValue.serverTimestamp(),
+        });
+        return const ParkPalAdminAccess(
+          allowed: true,
+          role: 'superAdmin',
+          bootstrapped: true,
+        );
+      }
+
       final doc = await firestore
           .collection(ParkPalAdminCollections.adminUsers)
           .doc(user.uid)
           .get();
-      final role = doc.data()?['role'] as String?;
-      if (const ['superAdmin', 'admin', 'support', 'partnerManager']
-          .contains(role)) {
-        return role;
+      final data = doc.data();
+      final role = data?['role'] as String?;
+      final status = data?['status'] as String?;
+      if (status == 'active' && _allowedRoles.contains(role)) {
+        transaction.set(
+            adminRef,
+            {
+              'lastLoginAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true));
+        return ParkPalAdminAccess(allowed: true, role: role);
       }
-      return null;
-    } catch (_) {
-      return null;
-    }
+
+      return const ParkPalAdminAccess(allowed: false);
+    });
   }
 
   Future<ParkPalAdminMetrics> fetchDashboardMetrics() async {

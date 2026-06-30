@@ -48,10 +48,10 @@ class _ParkPalAdminAuthGateState extends State<ParkPalAdminAuthGate> {
   }
 
   Future<void> _loadRole() async {
-    final role = await _service.currentAdminRole();
+    final access = await _service.currentAdminAccess();
     if (!mounted) return;
     setState(() {
-      _role = role;
+      _role = access.role;
       _loading = false;
     });
   }
@@ -68,14 +68,19 @@ class _ParkPalAdminAuthGateState extends State<ParkPalAdminAuthGate> {
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
-      final role = await _service.currentAdminRole();
+      final access = await _service.currentAdminAccess();
       if (!mounted) return;
       setState(() {
-        _role = role;
-        _error = role == null
+        _role = access.role;
+        _error = !access.allowed
             ? 'This account is not authorised for ParkPal Admin.'
             : null;
       });
+      if (access.bootstrapped && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('First Super Admin created.')),
+        );
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() => _error = 'Could not sign in to ParkPal Admin.');

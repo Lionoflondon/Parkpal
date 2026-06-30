@@ -927,6 +927,28 @@ bool _canViewSection(String role, ParkPalAdminSection section) {
       ParkPalAdminSection.support,
     }.contains(section);
   }
+  if (role == 'reviewer') {
+    return const {
+      ParkPalAdminSection.dashboard,
+      ParkPalAdminSection.support,
+      ParkPalAdminSection.analytics,
+    }.contains(section);
+  }
+  if (role == 'pioneerManager') {
+    return const {
+      ParkPalAdminSection.dashboard,
+      ParkPalAdminSection.partners,
+      ParkPalAdminSection.support,
+    }.contains(section);
+  }
+  if (role == 'atlasManager') {
+    return const {
+      ParkPalAdminSection.dashboard,
+      ParkPalAdminSection.locations,
+      ParkPalAdminSection.analytics,
+      ParkPalAdminSection.settings,
+    }.contains(section);
+  }
   return section == ParkPalAdminSection.dashboard;
 }
 
