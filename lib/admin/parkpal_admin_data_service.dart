@@ -17,6 +17,9 @@ class ParkPalAdminCollections {
 class ParkPalAdminMetrics {
   const ParkPalAdminMetrics({
     required this.liveBookings,
+    required this.pendingPartners,
+    required this.activePartners,
+    required this.activeLocations,
     required this.availableSpaces,
     required this.revenueToday,
     required this.partnerApplications,
@@ -24,6 +27,9 @@ class ParkPalAdminMetrics {
   });
 
   final int liveBookings;
+  final int pendingPartners;
+  final int activePartners;
+  final int activeLocations;
   final int availableSpaces;
   final double revenueToday;
   final int partnerApplications;
@@ -31,6 +37,9 @@ class ParkPalAdminMetrics {
 
   static const empty = ParkPalAdminMetrics(
     liveBookings: 0,
+    pendingPartners: 0,
+    activePartners: 0,
+    activeLocations: 0,
     availableSpaces: 0,
     revenueToday: 0,
     partnerApplications: 0,
@@ -90,6 +99,24 @@ class ParkPalAdminDataService {
           field: 'status',
           value: 'active',
         ),
+        _count(
+          firestore,
+          ParkPalAdminCollections.partners,
+          field: 'status',
+          value: 'pending',
+        ),
+        _count(
+          firestore,
+          ParkPalAdminCollections.partners,
+          field: 'status',
+          value: 'active',
+        ),
+        _count(
+          firestore,
+          ParkPalAdminCollections.locations,
+          field: 'active',
+          value: true,
+        ),
         _sumInt(
             firestore, ParkPalAdminCollections.locations, 'availableSpaces'),
         _count(
@@ -112,10 +139,13 @@ class ParkPalAdminDataService {
       );
       return ParkPalAdminMetrics(
         liveBookings: results[0],
-        availableSpaces: results[1],
+        pendingPartners: results[1],
+        activePartners: results[2],
+        activeLocations: results[3],
+        availableSpaces: results[4],
         revenueToday: revenue,
-        partnerApplications: results[2],
-        alerts: results[3],
+        partnerApplications: results[5],
+        alerts: results[6],
       );
     } catch (_) {
       return ParkPalAdminMetrics.empty;
@@ -132,6 +162,73 @@ class ParkPalAdminDataService {
           .toList(growable: false);
     } catch (_) {
       return const [];
+    }
+  }
+
+  Future<bool> updatePartnerStatus({
+    required String partnerId,
+    required String status,
+    required String onboardingStatus,
+  }) async {
+    try {
+      final firestore = await _safeFirestore();
+      if (firestore == null) return false;
+      await firestore
+          .collection(ParkPalAdminCollections.partners)
+          .doc(partnerId)
+          .set({
+        'status': status,
+        'onboardingStatus': onboardingStatus,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> saveLocation({
+    String? locationId,
+    required Map<String, Object?> data,
+  }) async {
+    try {
+      final firestore = await _safeFirestore();
+      if (firestore == null) return false;
+      final collection =
+          firestore.collection(ParkPalAdminCollections.locations);
+      final document = locationId == null || locationId.isEmpty
+          ? collection.doc()
+          : collection.doc(locationId);
+      await document.set({
+        ...data,
+        'locationId': document.id,
+        'updatedAt': FieldValue.serverTimestamp(),
+        if (locationId == null || locationId.isEmpty)
+          'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> updateLocationActive({
+    required String locationId,
+    required bool active,
+  }) async {
+    try {
+      final firestore = await _safeFirestore();
+      if (firestore == null) return false;
+      await firestore
+          .collection(ParkPalAdminCollections.locations)
+          .doc(locationId)
+          .set({
+        'active': active,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 
