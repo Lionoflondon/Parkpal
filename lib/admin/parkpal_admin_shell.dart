@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../features/parkpal_atlas/iris_coverage_forecast_admin_section.dart';
 import 'parkpal_admin_data_service.dart';
 import 'parkpal_admin_theme.dart';
 
@@ -13,6 +14,7 @@ enum ParkPalAdminSection {
   appealSupport,
   reports,
   irisReview,
+  coverageForecast,
   adminUsers,
   settings,
 }
@@ -113,6 +115,8 @@ class _ParkPalAdminShellState extends State<ParkPalAdminShell> {
   Widget _pageFor(ParkPalAdminSection section, String role) {
     return switch (section) {
       ParkPalAdminSection.dashboard => const _DashboardPage(),
+      ParkPalAdminSection.coverageForecast =>
+        const IrisCoverageForecastAdminSection(),
       _ => _ModulePage(section: section, role: role),
     };
   }
@@ -671,6 +675,7 @@ bool _canViewSection(String role, ParkPalAdminSection section) {
       ParkPalAdminSection.signRepository,
       ParkPalAdminSection.roadRules,
       ParkPalAdminSection.irisReview,
+      ParkPalAdminSection.coverageForecast,
       ParkPalAdminSection.reports,
     }.contains(section);
   }
@@ -680,6 +685,7 @@ bool _canViewSection(String role, ParkPalAdminSection section) {
       ParkPalAdminSection.signRepository,
       ParkPalAdminSection.reports,
       ParkPalAdminSection.irisReview,
+      ParkPalAdminSection.coverageForecast,
     }.contains(section);
   }
   if (role == 'atlasManager') {
@@ -690,6 +696,7 @@ bool _canViewSection(String role, ParkPalAdminSection section) {
       ParkPalAdminSection.roadRules,
       ParkPalAdminSection.userChecks,
       ParkPalAdminSection.irisReview,
+      ParkPalAdminSection.coverageForecast,
     }.contains(section);
   }
   return section == ParkPalAdminSection.dashboard;
@@ -705,6 +712,8 @@ String _emptyCopyFor(ParkPalAdminSection section) {
     ParkPalAdminSection.appealSupport => 'No fine support cases yet.',
     ParkPalAdminSection.reports => 'No user reports awaiting review.',
     ParkPalAdminSection.irisReview => 'No IRIS review items pending.',
+    ParkPalAdminSection.coverageForecast =>
+      'No coverage forecast records available yet.',
     ParkPalAdminSection.adminUsers => 'No admin user rows visible.',
     ParkPalAdminSection.settings => 'No settings records visible.',
     ParkPalAdminSection.dashboard => 'No dashboard records visible.',
@@ -783,6 +792,17 @@ _ModuleDefinition _definitionFor(ParkPalAdminSection section) {
         collection: ParkPalAdminCollections.irisReview,
         capabilities: ['Uncertain results', 'Conflicts', 'Stale records'],
       ),
+    ParkPalAdminSection.coverageForecast => const _ModuleDefinition(
+        title: 'Coverage Forecast',
+        description:
+            'Forecast borough coverage, PCI lift, road priority and recommended Pioneer Missions.',
+        collection: 'parkpal_iris_road_priorities',
+        capabilities: [
+          'Borough coverage',
+          'Priority scoring',
+          'Mission recommendations'
+        ],
+      ),
     ParkPalAdminSection.adminUsers => const _ModuleDefinition(
         title: 'Admin Users',
         description:
@@ -821,6 +841,7 @@ IconData _iconFor(ParkPalAdminSection section) {
     ParkPalAdminSection.appealSupport => Icons.gavel_outlined,
     ParkPalAdminSection.reports => Icons.report_problem_outlined,
     ParkPalAdminSection.irisReview => Icons.visibility_outlined,
+    ParkPalAdminSection.coverageForecast => Icons.auto_graph_outlined,
     ParkPalAdminSection.adminUsers => Icons.admin_panel_settings_outlined,
     ParkPalAdminSection.settings => Icons.settings_outlined,
   };

@@ -14,6 +14,20 @@ service cloud.firestore {
       return signedIn() && request.auth.token.admin == true;
     }
 
+    function isParkPalAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/parkpalAdminUsers/$(request.auth.uid))
+        && get(/databases/$(database)/documents/parkpalAdminUsers/$(request.auth.uid)).data.status == 'active'
+        && get(/databases/$(database)/documents/parkpalAdminUsers/$(request.auth.uid)).data.role in [
+          'superAdmin',
+          'admin',
+          'support',
+          'reviewer',
+          'pioneerManager',
+          'atlasManager'
+        ];
+    }
+
     function isContributor() {
       return signedIn()
         && request.auth.token.role in ['pioneer', 'rider', 'admin'];
@@ -66,6 +80,7 @@ service cloud.firestore {
 
     match /parkpal_reports/{reportId} {
       allow read: if isAdmin()
+        || isParkPalAdmin()
         || (signedIn() && resource.data.userId == request.auth.uid);
       allow create: if signedIn()
         && request.resource.data.reportId == reportId
@@ -113,6 +128,7 @@ service cloud.firestore {
 
     match /parkpal_queries/{queryId} {
       allow read: if isAdmin()
+        || isParkPalAdmin()
         || (signedIn() && resource.data.userId == request.auth.uid);
       allow create: if request.resource.data.queryId == queryId
         && (
@@ -124,7 +140,7 @@ service cloud.firestore {
 
     match /parkpal_councils/{councilId} {
       allow read: if true;
-      allow create, update, delete: if isAdmin();
+      allow create, update, delete: if isAdmin() || isParkPalAdmin();
     }
 
     match /parkpalAdminUsers/{userId} {
@@ -153,6 +169,60 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).changedKeys()
           .hasOnly(['lastLoginAt']);
       allow update, delete: if isAdmin();
+    }
+
+    match /parkpal_atlas_roads/{roadId} {
+      allow read: if isParkPalAdmin();
+      allow create, update, delete: if isParkPalAdmin();
+      match /history/{historyId} {
+        allow read, create: if isParkPalAdmin();
+        allow update, delete: if false;
+      }
+    }
+
+    match /parkpal_iris_inspector_findings/{findingId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /parkpal_pioneer_missions/{missionId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /parkpal_iris_coverage_forecasts/{forecastId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /parkpal_borough_coverage_scores/{scoreId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /parkpal_iris_road_priorities/{roadId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /parkpalEvidenceRecords/{recordId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /parkpalAppealSupportCases/{caseId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /parkpalIrisReviewQueue/{reviewId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /parkpalAdminAlerts/{alertId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if isAdmin();
     }
 
     match /{document=**} {
