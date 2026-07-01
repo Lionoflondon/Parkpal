@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../features/account/account_screen.dart';
 import '../features/history/parking_history_screen.dart';
 import '../features/parking_query/parking_home_screen.dart';
 import '../features/scan/scan_coming_soon_screen.dart';
@@ -22,12 +23,6 @@ class _ParkPalShellState extends State<ParkPalShell> {
       );
       return;
     }
-    if (index == 3) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Account is coming soon.')),
-      );
-      return;
-    }
     setState(() => _selectedIndex = index);
   }
 
@@ -40,42 +35,57 @@ class _ParkPalShellState extends State<ParkPalShell> {
       ),
       const SizedBox.shrink(),
       const ParkingHistoryScreen(),
-      const SizedBox.shrink(),
+      const AccountScreen(),
     ];
 
     return Scaffold(
       body: SafeArea(child: pages[_selectedIndex]),
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(28),
-          child: NavigationBar(
-            selectedIndex: _selectedIndex,
-            onDestinationSelected: _onDestinationSelected,
-            backgroundColor: Colors.white.withValues(alpha: 0.94),
-            indicatorColor: ParkPalColors.mint100,
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.home_outlined),
-                selectedIcon: Icon(Icons.home),
-                label: 'Home',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.document_scanner_outlined),
-                selectedIcon: Icon(Icons.document_scanner),
-                label: 'Scan',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.history_outlined),
-                selectedIcon: Icon(Icons.history),
-                label: 'History',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.person_outline),
-                selectedIcon: Icon(Icons.person),
-                label: 'Account',
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: ParkPalColors.lineSoft),
+            boxShadow: [
+              BoxShadow(
+                color: ParkPalColors.midnight.withValues(alpha: 0.13),
+                blurRadius: 28,
+                offset: const Offset(0, 16),
               ),
             ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(30),
+            child: NavigationBar(
+              selectedIndex: _selectedIndex,
+              onDestinationSelected: _onDestinationSelected,
+              height: 72,
+              backgroundColor: Colors.white.withValues(alpha: 0.88),
+              indicatorColor: ParkPalColors.mint100,
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.home_rounded),
+                  selectedIcon: Icon(Icons.home_rounded),
+                  label: 'Home',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.center_focus_strong_rounded),
+                  selectedIcon: Icon(Icons.center_focus_strong_rounded),
+                  label: 'Scan',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.receipt_long_rounded),
+                  selectedIcon: Icon(Icons.receipt_long_rounded),
+                  label: 'Vault',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.person_rounded),
+                  selectedIcon: Icon(Icons.person_rounded),
+                  label: 'Account',
+                ),
+              ],
+            ),
           ),
         ),
       ),

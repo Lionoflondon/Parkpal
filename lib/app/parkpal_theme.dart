@@ -30,6 +30,10 @@ class ParkPalColors {
   static const glassBorder = Color(0x33FFFFFF);
   static const line = Color(0x1A14181A);
   static const lineSoft = Color(0x0F14181A);
+  static const porcelain = Color(0xFFFFFCF7);
+  static const smoke = Color(0xFFF0EEE8);
+  static const graphite = Color(0xFF202426);
+  static const shadow = Color(0x2408111F);
 }
 
 class ParkPalText {
@@ -40,12 +44,14 @@ class ParkPalText {
     FontWeight? fontWeight,
     Color? color,
     double? height,
+    double? letterSpacing,
   }) {
     return GoogleFonts.spaceGrotesk(
       fontSize: fontSize,
       fontWeight: fontWeight,
       color: color,
       height: height,
+      letterSpacing: letterSpacing,
     );
   }
 
@@ -115,24 +121,34 @@ ThemeData buildParkPalTheme() {
 
   return base.copyWith(
     scaffoldBackgroundColor: ParkPalColors.cream,
+    colorScheme: base.colorScheme.copyWith(
+      primary: ParkPalColors.green700,
+      secondary: ParkPalColors.irisBlue,
+      surface: ParkPalColors.porcelain,
+      onSurface: ParkPalColors.ink,
+      error: ParkPalColors.red,
+    ),
     textTheme: GoogleFonts.interTextTheme(base.textTheme).copyWith(
       displayLarge: ParkPalText.display(
-        fontSize: 56,
-        fontWeight: FontWeight.w700,
+        fontSize: 48,
+        fontWeight: FontWeight.w800,
         color: ParkPalColors.ink,
-        height: 0.95,
+        height: 0.98,
+        letterSpacing: -1.4,
       ),
       headlineMedium: ParkPalText.display(
-        fontSize: 34,
-        fontWeight: FontWeight.w700,
+        fontSize: 30,
+        fontWeight: FontWeight.w800,
         color: ParkPalColors.ink,
+        letterSpacing: -0.7,
       ),
       titleLarge: ParkPalText.display(
         fontSize: 22,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w800,
         color: ParkPalColors.ink,
+        letterSpacing: -0.3,
       ),
-      bodyMedium: ParkPalText.body(color: ParkPalColors.ink),
+      bodyMedium: ParkPalText.body(color: ParkPalColors.ink, height: 1.45),
     ),
     appBarTheme: AppBarTheme(
       backgroundColor: ParkPalColors.cream,
@@ -141,7 +157,7 @@ ThemeData buildParkPalTheme() {
       centerTitle: false,
       titleTextStyle: ParkPalText.display(
         fontSize: 22,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w800,
         color: ParkPalColors.ink,
       ),
     ),
@@ -149,40 +165,61 @@ ThemeData buildParkPalTheme() {
       style: FilledButton.styleFrom(
         backgroundColor: ParkPalColors.green700,
         foregroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        disabledBackgroundColor: ParkPalColors.line,
+        disabledForegroundColor: ParkPalColors.mutedTwo,
+        elevation: 0,
+        textStyle: ParkPalText.body(fontWeight: FontWeight.w800),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         foregroundColor: ParkPalColors.green700,
-        side: const BorderSide(color: ParkPalColors.green700),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        disabledForegroundColor: ParkPalColors.mutedTwo,
+        side: const BorderSide(color: ParkPalColors.greenLine),
+        textStyle: ParkPalText.body(fontWeight: FontWeight.w800),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       ),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: Colors.white,
+      fillColor: ParkPalColors.porcelain,
+      hintStyle: ParkPalText.body(color: ParkPalColors.mutedTwo),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(22),
         borderSide: const BorderSide(color: ParkPalColors.line),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(22),
         borderSide: const BorderSide(color: ParkPalColors.line),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(18),
-        borderSide: const BorderSide(color: ParkPalColors.green700, width: 1.4),
+        borderRadius: BorderRadius.circular(22),
+        borderSide: const BorderSide(color: ParkPalColors.green700, width: 1.5),
       ),
     ),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: Colors.white.withValues(alpha: 0.92),
       indicatorColor: ParkPalColors.mint100,
+      iconTheme: WidgetStateProperty.resolveWith((states) {
+        final selected = states.contains(WidgetState.selected);
+        return IconThemeData(
+          color: selected ? ParkPalColors.green700 : ParkPalColors.mutedTwo,
+          size: 24,
+        );
+      }),
       labelTextStyle: WidgetStatePropertyAll(
-        ParkPalText.body(fontSize: 12, fontWeight: FontWeight.w700),
+        ParkPalText.body(fontSize: 12, fontWeight: FontWeight.w800),
       ),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: ParkPalColors.midnight,
+      contentTextStyle: ParkPalText.body(color: Colors.white),
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ),
   );
 }
@@ -198,9 +235,16 @@ BoxDecoration parkPalGlassDecoration({
     border: Border.all(color: ParkPalColors.lineSoft),
     boxShadow: [
       BoxShadow(
-        color: ParkPalColors.green900.withValues(alpha: 0.08),
-        blurRadius: 26,
-        offset: const Offset(0, 16),
+        color: ParkPalColors.shadow,
+        blurRadius: 34,
+        spreadRadius: -14,
+        offset: const Offset(0, 22),
+      ),
+      BoxShadow(
+        color: Colors.white.withValues(alpha: 0.65),
+        blurRadius: 18,
+        spreadRadius: -18,
+        offset: const Offset(0, -6),
       ),
     ],
   );
