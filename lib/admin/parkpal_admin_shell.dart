@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../features/parkpal_atlas/iris_coverage_forecast_admin_section.dart';
 import 'parkpal_admin_data_service.dart';
+import 'parkpal_admin_settings_screen.dart';
 import 'parkpal_admin_theme.dart';
 
 enum ParkPalAdminSection {
@@ -117,6 +118,7 @@ class _ParkPalAdminShellState extends State<ParkPalAdminShell> {
       ParkPalAdminSection.dashboard => const _DashboardPage(),
       ParkPalAdminSection.coverageForecast =>
         const IrisCoverageForecastAdminSection(),
+      ParkPalAdminSection.settings => const ParkPalAdminSettingsScreen(),
       _ => _ModulePage(section: section, role: role),
     };
   }

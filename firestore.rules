@@ -225,6 +225,11 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /parkpalOperationalSettings/{settingsId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

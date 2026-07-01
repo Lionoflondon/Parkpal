@@ -34,7 +34,10 @@ class _ParkPalShellState extends State<ParkPalShell> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      ParkingHomeScreen(onOpenScan: () => _onDestinationSelected(1)),
+      ParkingHomeScreen(
+        onOpenScan: () => _onDestinationSelected(1),
+        onOpenHistory: () => setState(() => _selectedIndex = 2),
+      ),
       const SizedBox.shrink(),
       const ParkingHistoryScreen(),
       const SizedBox.shrink(),

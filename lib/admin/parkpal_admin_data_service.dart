@@ -18,6 +18,7 @@ class ParkPalAdminCollections {
   static const contributors = 'parkpal_contributors';
   static const alerts = 'parkpalAdminAlerts';
   static const adminUsers = 'parkpalAdminUsers';
+  static const operationalSettings = 'parkpalOperationalSettings';
 }
 
 class ParkPalAdminAccess {
@@ -79,6 +80,18 @@ class ParkPalAdminMetrics {
     activeUsers: 0,
     alerts: 0,
   );
+}
+
+class ParkPalOperationalSettingsResult {
+  const ParkPalOperationalSettingsResult({
+    required this.data,
+    required this.loaded,
+    this.message,
+  });
+
+  final Map<String, Object?> data;
+  final bool loaded;
+  final String? message;
 }
 
 class ParkPalAdminDataService {
@@ -307,6 +320,67 @@ class ParkPalAdminDataService {
     }
   }
 
+  Future<ParkPalOperationalSettingsResult> loadOperationalSettings() async {
+    try {
+      final firestore = await _safeFirestore();
+      if (firestore == null) {
+        return const ParkPalOperationalSettingsResult(
+          data: {},
+          loaded: false,
+          message: 'Unable to load settings. Please try again.',
+        );
+      }
+      final doc = firestore
+          .collection(ParkPalAdminCollections.operationalSettings)
+          .doc('default');
+      final snapshot = await doc.get();
+      if (!snapshot.exists) {
+        final defaults = _defaultOperationalSettings();
+        await doc.set({
+          ...defaults,
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedBy': (_auth ?? FirebaseAuth.instance).currentUser?.email ??
+              'ParkPal Admin',
+        });
+        return ParkPalOperationalSettingsResult(data: defaults, loaded: true);
+      }
+      return ParkPalOperationalSettingsResult(
+        data: {
+          ..._defaultOperationalSettings(),
+          'id': snapshot.id,
+          ...?snapshot.data(),
+        },
+        loaded: true,
+      );
+    } catch (_) {
+      return const ParkPalOperationalSettingsResult(
+        data: {},
+        loaded: false,
+        message: 'Unable to load settings. Please try again.',
+      );
+    }
+  }
+
+  Future<bool> saveOperationalSetting(String field, Object? value) async {
+    try {
+      final firestore = await _safeFirestore();
+      if (firestore == null) return false;
+      await firestore
+          .collection(ParkPalAdminCollections.operationalSettings)
+          .doc('default')
+          .set({
+        field: value,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedBy': (_auth ?? FirebaseAuth.instance).currentUser?.email ??
+            'ParkPal Admin',
+      }, SetOptions(merge: true));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<FirebaseFirestore?> _safeFirestore() async {
     try {
       await _ensureFirebase();
@@ -383,5 +457,35 @@ class ParkPalAdminDataService {
     }
     final snapshot = await query.count().get();
     return snapshot.count ?? 0;
+  }
+
+  Map<String, Object?> _defaultOperationalSettings() {
+    return {
+      'maximumParkingDurationMinutes': 120,
+      'gracePeriodMinutes': 10,
+      'cancellationRules': 'No booking flow in ParkPal. Reserved for future.',
+      'bookingExtensionsEnabled': false,
+      'autoReleaseExpiredBookings': false,
+      'stripeStatus': 'not_configured',
+      'refundPolicy': 'Manual review',
+      'platformFeePercent': 0,
+      'taxes': 'UK VAT rules pending',
+      'defaultCurrency': 'GBP',
+      'emailNotifications': true,
+      'smsNotifications': false,
+      'pushNotifications': false,
+      'adminAlerts': true,
+      'adminSessionTimeoutMinutes': 60,
+      'requireMfa': false,
+      'passwordPolicy': 'Minimum 7 characters',
+      'auditLogging': true,
+      'irisEnabled': true,
+      'automaticAnomalyDetection': true,
+      'occupancyPrediction': false,
+      'fraudDetection': false,
+      'firebaseStatus': 'connected',
+      'googleMapsStatus': 'not_configured',
+      'emailProviderStatus': 'not_configured',
+    };
   }
 }

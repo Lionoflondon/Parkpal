@@ -7,9 +7,10 @@ import 'parking_lookup_result.dart';
 import 'parking_query_service.dart';
 
 class ParkingHomeScreen extends StatefulWidget {
-  const ParkingHomeScreen({this.onOpenScan, super.key});
+  const ParkingHomeScreen({this.onOpenScan, this.onOpenHistory, super.key});
 
   final VoidCallback? onOpenScan;
+  final VoidCallback? onOpenHistory;
 
   @override
   State<ParkingHomeScreen> createState() => _ParkingHomeScreenState();
@@ -119,6 +120,11 @@ class _ParkingHomeScreenState extends State<ParkingHomeScreen> {
           onPressed: null,
           icon: const Icon(Icons.my_location),
           label: const Text('Use GPS location — coming soon'),
+        ),
+        OutlinedButton.icon(
+          onPressed: widget.onOpenHistory,
+          icon: const Icon(Icons.history),
+          label: const Text('View search history'),
         ),
         if (_error != null) ...[
           const SizedBox(height: 12),

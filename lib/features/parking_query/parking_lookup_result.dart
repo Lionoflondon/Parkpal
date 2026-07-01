@@ -50,6 +50,30 @@ class ParkingLookupResult {
   final String evidenceReason;
   final String leaveByTime;
 
+  ParkingLookupResult copyWith({
+    CanParkStatus? canPark,
+    String? ruleSummary,
+    String? timeWindow,
+    PaymentRequiredStatus? paymentRequired,
+    String? riskLevel,
+    double? confidenceScore,
+    ParkingEvidenceSource? evidenceSource,
+    String? evidenceReason,
+    String? leaveByTime,
+  }) {
+    return ParkingLookupResult(
+      canPark: canPark ?? this.canPark,
+      ruleSummary: ruleSummary ?? this.ruleSummary,
+      timeWindow: timeWindow ?? this.timeWindow,
+      paymentRequired: paymentRequired ?? this.paymentRequired,
+      riskLevel: riskLevel ?? this.riskLevel,
+      confidenceScore: confidenceScore ?? this.confidenceScore,
+      evidenceSource: evidenceSource ?? this.evidenceSource,
+      evidenceReason: evidenceReason ?? this.evidenceReason,
+      leaveByTime: leaveByTime ?? this.leaveByTime,
+    );
+  }
+
   String get canParkLabel {
     return switch (canPark) {
       CanParkStatus.yes => 'Allowed',

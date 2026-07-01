@@ -119,7 +119,7 @@ class _HistoryCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _relativeTime(entry.queriedAt),
+                  '${_relativeTime(entry.queriedAt)} • Confidence ${(entry.confidence * 100).round()}%',
                   style: ParkPalText.mono(
                     color: ParkPalColors.mutedTwo,
                     fontSize: 12,
