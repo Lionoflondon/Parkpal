@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 
 import '../../admin/parkpal_admin_theme.dart';
@@ -22,8 +24,11 @@ class _AieAdminScreenState extends State<AieAdminScreen> {
   AieDocumentType _documentType = AieDocumentType.csv;
   Future<AieDashboardSummary>? _summary;
   Future<List<AieSource>>? _sources;
+  Future<List<Map<String, Object?>>>? _v2Sources;
+  Future<List<Map<String, Object?>>>? _v2Runs;
   AieImportResult? _lastResult;
   bool _importing = false;
+  String? _runningCouncilId;
 
   @override
   void initState() {
@@ -44,6 +49,65 @@ class _AieAdminScreenState extends State<AieAdminScreen> {
   void _refresh() {
     _summary = _engine.fetchDashboardSummary();
     _sources = _engine.fetchSources();
+    _v2Sources = _fetchV2Sources();
+    _v2Runs = _fetchV2Runs();
+  }
+
+  Future<List<Map<String, Object?>>> _fetchV2Sources() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('parkpal_councils')
+          .orderBy('priority')
+          .limit(50)
+          .get();
+      return snapshot.docs
+          .map((doc) => {'id': doc.id, ...doc.data()})
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<List<Map<String, Object?>>> _fetchV2Runs() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('parkpal_aie_import_runs')
+          .orderBy('startedAt', descending: true)
+          .limit(25)
+          .get();
+      return snapshot.docs
+          .map((doc) => {'id': doc.id, ...doc.data()})
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _runV2CouncilImport(String councilId) async {
+    setState(() => _runningCouncilId = councilId);
+    try {
+      final callable = FirebaseFunctions.instanceFor(region: 'europe-west2')
+          .httpsCallable('runParkPalAieCouncilIngestion');
+      final result = await callable.call<Map<Object?, Object?>>({
+        'councilId': councilId,
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('AIE v2 import started: ${result.data['id']}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('AIE v2 import failed: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _runningCouncilId = null;
+          _refresh();
+        });
+      }
+    }
   }
 
   Future<void> _runImport() async {
@@ -205,6 +269,14 @@ class _AieAdminScreenState extends State<AieAdminScreen> {
                 },
               ),
             ),
+            const SizedBox(height: 24),
+            _AieV2SourcesSection(
+              sourcesFuture: _v2Sources,
+              runningCouncilId: _runningCouncilId,
+              onRunImport: _runV2CouncilImport,
+            ),
+            const SizedBox(height: 24),
+            _AieV2RunsSection(runsFuture: _v2Runs),
             const SizedBox(height: 24),
             _TwoColumnLists(summary: summary, onRetryLog: _retryFromLog),
           ],
@@ -550,6 +622,205 @@ class _SourceRow extends StatelessWidget {
   }
 }
 
+class _AieV2SourcesSection extends StatelessWidget {
+  const _AieV2SourcesSection({
+    required this.sourcesFuture,
+    required this.runningCouncilId,
+    required this.onRunImport,
+  });
+
+  final Future<List<Map<String, Object?>>>? sourcesFuture;
+  final String? runningCouncilId;
+  final Future<void> Function(String councilId) onRunImport;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Section(
+      title: 'AIE v2 council registry',
+      child: FutureBuilder<List<Map<String, Object?>>>(
+        future: sourcesFuture,
+        builder: (context, snapshot) {
+          final sources = snapshot.data ?? const <Map<String, Object?>>[];
+          if (sources.isEmpty) {
+            return const _EmptyPanel(
+              'No parkpal_councils registry sources visible yet.',
+            );
+          }
+          return Column(
+            children: [
+              for (final source in sources)
+                _AieV2SourceRow(
+                  source: source,
+                  running: runningCouncilId == source['id'],
+                  onRunImport: () =>
+                      onRunImport(source['id']?.toString() ?? ''),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _AieV2SourceRow extends StatelessWidget {
+  const _AieV2SourceRow({
+    required this.source,
+    required this.running,
+    required this.onRunImport,
+  });
+
+  final Map<String, Object?> source;
+  final bool running;
+  final VoidCallback onRunImport;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = source['active'] == true;
+    final lastSuccess = _shortValue(source['lastSuccessAt']);
+    final lastError = source['lastError']?.toString();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: ParkPalAdminColors.glassBorder),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            active ? Icons.hub_outlined : Icons.pause_circle_outline,
+            color: active ? ParkPalAdminColors.cyan : ParkPalAdminColors.muted,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  source['name']?.toString() ??
+                      source['councilId']?.toString() ??
+                      source['id'].toString(),
+                  style: adminBody(weight: FontWeight.w800),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  [
+                    source['sourceType'] ?? 'unknown',
+                    active ? 'active' : 'inactive',
+                    'last success: $lastSuccess',
+                    if (source['lastImportRunId'] != null)
+                      'run: ${source['lastImportRunId']}',
+                    if (lastError != null && lastError.isNotEmpty)
+                      'error: $lastError',
+                  ].join(' • '),
+                  style: adminBody(color: ParkPalAdminColors.muted, size: 12),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          OutlinedButton.icon(
+            onPressed: active && !running ? onRunImport : null,
+            icon: running
+                ? const SizedBox.square(
+                    dimension: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.play_arrow_rounded),
+            label: Text(running ? 'Running…' : 'Run Import'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AieV2RunsSection extends StatelessWidget {
+  const _AieV2RunsSection({required this.runsFuture});
+
+  final Future<List<Map<String, Object?>>>? runsFuture;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Section(
+      title: 'AIE v2 import runs',
+      child: FutureBuilder<List<Map<String, Object?>>>(
+        future: runsFuture,
+        builder: (context, snapshot) {
+          final runs = snapshot.data ?? const <Map<String, Object?>>[];
+          if (runs.isEmpty) {
+            return const _EmptyPanel('No AIE v2 import runs yet.');
+          }
+          return Column(
+            children: [
+              for (final run in runs)
+                _MapRow(
+                  title: run['councilName']?.toString() ?? run['id'].toString(),
+                  subtitle: [
+                    run['status'] ?? 'unknown',
+                    run['sourceType'] ?? 'source',
+                    'connector: ${run['connectorUsed'] ?? 'not recorded'}',
+                    'resolved: ${run['resolvedUrl'] ?? 'not recorded'}',
+                    'format: ${run['selectedFormat'] ?? 'not recorded'}',
+                    'fetched ${run['recordsFetched'] ?? 0}',
+                    'imported ${run['recordsUpserted'] ?? 0}',
+                    'failed ${run['recordsFailed'] ?? 0}',
+                    if (run['failureStage'] != null)
+                      'stage: ${run['failureStage']}',
+                  ].join(' • '),
+                  onTap: () => _showAieV2RunDetails(context, run),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showAieV2RunDetails(BuildContext context, Map<String, Object?> run) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => _ImportDetailsDialog(
+        log: {
+          'sourceId': run['councilId'],
+          'sourceUrl': run['originalUrl'],
+          'status': run['status'],
+          'imported': run['recordsUpserted'],
+          'failed': run['recordsFailed'],
+          'skipped': run['recordsSkipped'],
+          'messages': [
+            ...((run['errors'] as List?) ?? const []),
+            ...((run['warnings'] as List?) ?? const []),
+          ],
+          'diagnostics': {
+            'failureStage': run['failureStage'],
+            'sourceName': run['councilName'],
+            'originalSourceUrl': run['originalUrl'],
+            'resolvedEndpoint': run['resolvedUrl'],
+            'selectedExportFormat': run['selectedFormat'],
+            'httpStatus': run['httpStatus'],
+            'contentType': run['contentType'],
+            'responseSize': run['responseSize'],
+            'responsePreview': run['responsePreview'],
+            'availableExportFormats': run['availableColumns'],
+            'selectedParser': run['sourceType'],
+            'connectorUsed': run['connectorUsed'],
+          },
+        },
+        onRetry: () => Navigator.of(context).pop(),
+      ),
+    );
+  }
+}
+
+String _shortValue(Object? value) {
+  if (value == null) return 'never';
+  final text = value.toString();
+  return text.length > 32 ? '${text.substring(0, 32)}…' : text;
+}
+
 class _MapRow extends StatelessWidget {
   const _MapRow({required this.title, required this.subtitle, this.onTap});
 
@@ -652,6 +923,7 @@ class _ImportDetailsDialog extends StatelessWidget {
                   'Source name': diagnostics['sourceName'],
                   'Original source URL':
                       diagnostics['originalSourceUrl'] ?? log['sourceUrl'],
+                  'Connector used': diagnostics['connectorUsed'],
                   'Constructed URL': diagnostics['constructedUrl'],
                   'Resolved endpoint': diagnostics['resolvedEndpoint'],
                   'Authority': diagnostics['authority'],

@@ -1,0 +1,275 @@
+import * as admin from "firebase-admin";
+import {HttpsError, onCall} from "firebase-functions/v2/https";
+import {onSchedule} from "firebase-functions/v2/scheduler";
+import {logger} from "firebase-functions";
+import {adapterFor} from "./aie_v2_adapters";
+import {
+  CouncilSource,
+  deterministicRestrictionId,
+  NormalizedRecordDraft,
+} from "./aie_v2_core";
+
+admin.initializeApp();
+
+const db = admin.firestore();
+const councilsCollection = "parkpal_councils";
+const restrictionsCollection = "parkpal_restrictions";
+const runsCollection = "parkpal_aie_import_runs";
+const requestsCollection = "parkpal_aie_import_requests";
+
+export const runParkPalAieIngestionJob = onSchedule(
+  {
+    schedule: "every day 03:20",
+    timeZone: "Europe/London",
+    region: "europe-west2",
+  },
+  async () => {
+    const snapshot = await db
+      .collection(councilsCollection)
+      .where("active", "==", true)
+      .orderBy("priority", "asc")
+      .get();
+    let processed = 0;
+    let skipped = 0;
+    let fetched = 0;
+    let upserted = 0;
+    let failedRecords = 0;
+    let failedCouncils = 0;
+    for (const doc of snapshot.docs) {
+      const source = councilSourceFromDoc(doc.id, doc.data());
+      if (source.sourceType === "manual" || source.sourceType === "unverified") {
+        skipped++;
+        await writeSkippedRun(source, "manual/unverified");
+        continue;
+      }
+      const result = await importCouncil(source);
+      processed++;
+      fetched += result.recordsFetched;
+      upserted += result.recordsUpserted;
+      failedRecords += result.recordsFailed;
+      if (result.status === "failed") failedCouncils++;
+      await delay(300);
+    }
+    logger.info("ParkPal AIE v2 scheduled run complete", {
+      processed,
+      skipped,
+      fetched,
+      upserted,
+      failedRecords,
+      failedCouncils,
+    });
+  },
+);
+
+export const runParkPalAieCouncilIngestion = onCall(
+  {region: "europe-west2"},
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "ParkPal Admin sign-in is required.");
+    }
+    const councilId = String(request.data?.councilId ?? "").trim();
+    if (!councilId) {
+      throw new HttpsError("invalid-argument", "councilId is required.");
+    }
+    const snapshot = await db.collection(councilsCollection).doc(councilId).get();
+    if (!snapshot.exists) {
+      throw new HttpsError("not-found", `Council source ${councilId} not found.`);
+    }
+    const source = councilSourceFromDoc(snapshot.id, snapshot.data() ?? {});
+    const result = await importCouncil(source);
+    await db.collection(requestsCollection).add({
+      councilId,
+      runId: result.id,
+      requestedBy: request.auth?.uid ?? "unknown",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return result;
+  },
+);
+
+async function importCouncil(source: CouncilSource): Promise<{
+  id: string;
+  status: string;
+  recordsFetched: number;
+  recordsUpserted: number;
+  recordsFailed: number;
+  recordsSkipped: number;
+}> {
+  const runRef = db.collection(runsCollection).doc();
+  const runId = runRef.id;
+  const startedAt = admin.firestore.FieldValue.serverTimestamp();
+  await runRef.set({
+    id: runId,
+    councilId: source.councilId,
+    councilName: source.name,
+    sourceType: source.sourceType,
+    originalUrl: source.baseUrl,
+    startedAt,
+    status: "skipped",
+    recordsFetched: 0,
+    recordsUpserted: 0,
+    recordsFailed: 0,
+    recordsSkipped: 0,
+    errors: [],
+    warnings: [],
+  });
+
+  if (!source.active || source.sourceType === "manual" || source.sourceType === "unverified") {
+    await runRef.set(
+      {
+        finishedAt: admin.firestore.FieldValue.serverTimestamp(),
+        status: "skipped",
+        connectorUsed: "SkippedAdapter",
+        warnings: ["Source inactive, manual, or unverified."],
+      },
+      {merge: true},
+    );
+    return {id: runId, status: "skipped", recordsFetched: 0, recordsUpserted: 0, recordsFailed: 0, recordsSkipped: 1};
+  }
+
+  try {
+    const adapter = adapterFor(source);
+    const result = await adapter.fetch(source);
+    let upserted = 0;
+    let failed = 0;
+    let skipped = 0;
+    for (const record of result.records) {
+      try {
+        await upsertRestriction(record);
+        upserted++;
+      } catch (error) {
+        failed++;
+        result.errors.push(`Persistence failed for ${record.sourceFeatureId}: ${String(error)}`);
+      }
+    }
+    const status =
+      result.errors.length > 0 && upserted === 0
+        ? "failed"
+        : result.errors.length > 0 || failed > 0
+          ? "partial_success"
+          : "success";
+    const diagnostics = result.diagnostics ?? {};
+    await runRef.set(
+      {
+        finishedAt: admin.firestore.FieldValue.serverTimestamp(),
+        status,
+        resolvedUrl: diagnostics.resolvedUrl,
+        connectorUsed: diagnostics.connectorUsed ?? adapter.sourceType,
+        httpStatus: diagnostics.httpStatus,
+        contentType: diagnostics.contentType,
+        responseSize: diagnostics.responseSize,
+        responsePreview: diagnostics.responsePreview,
+        availableColumns: diagnostics.availableColumns,
+        selectedFormat: diagnostics.selectedFormat,
+        recordsFetched: result.records.length,
+        recordsUpserted: upserted,
+        recordsFailed: failed,
+        recordsSkipped: skipped,
+        errors: result.errors,
+        warnings: result.warnings,
+        failureStage: status === "failed" ? "parser_execution" : null,
+      },
+      {merge: true},
+    );
+    await updateCouncilAfterRun(source.councilId, runId, status, result.errors[0]);
+    return {id: runId, status, recordsFetched: result.records.length, recordsUpserted: upserted, recordsFailed: failed, recordsSkipped: skipped};
+  } catch (error) {
+    const message = String(error);
+    await runRef.set(
+      {
+        finishedAt: admin.firestore.FieldValue.serverTimestamp(),
+        status: "failed",
+        failureStage: "unknown",
+        recordsFailed: 1,
+        errors: [message],
+      },
+      {merge: true},
+    );
+    await updateCouncilAfterRun(source.councilId, runId, "failed", message);
+    return {id: runId, status: "failed", recordsFetched: 0, recordsUpserted: 0, recordsFailed: 1, recordsSkipped: 0};
+  }
+}
+
+async function upsertRestriction(record: NormalizedRecordDraft): Promise<void> {
+  const id = deterministicRestrictionId(
+    record.councilId,
+    record.sourceFeatureId,
+    record.restrictionType,
+  );
+  await db.collection(restrictionsCollection).doc(id).set(
+    {
+      id,
+      ...record,
+      ingestedAt: admin.firestore.FieldValue.serverTimestamp(),
+      sourceUpdatedAt: record.sourceUpdatedAt
+        ? admin.firestore.Timestamp.fromDate(record.sourceUpdatedAt)
+        : null,
+    },
+    {merge: true},
+  );
+}
+
+async function updateCouncilAfterRun(
+  councilId: string,
+  runId: string,
+  status: string,
+  error?: string,
+): Promise<void> {
+  await db.collection(councilsCollection).doc(councilId).set(
+    {
+      lastCheckedAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastSuccessAt:
+        status === "success" || status === "partial_success"
+          ? admin.firestore.FieldValue.serverTimestamp()
+          : null,
+      lastError: error ?? null,
+      lastImportRunId: runId,
+    },
+    {merge: true},
+  );
+}
+
+async function writeSkippedRun(source: CouncilSource, reason: string): Promise<void> {
+  await db.collection(runsCollection).add({
+    councilId: source.councilId,
+    councilName: source.name,
+    sourceType: source.sourceType,
+    originalUrl: source.baseUrl,
+    startedAt: admin.firestore.FieldValue.serverTimestamp(),
+    finishedAt: admin.firestore.FieldValue.serverTimestamp(),
+    status: "skipped",
+    recordsFetched: 0,
+    recordsUpserted: 0,
+    recordsFailed: 0,
+    recordsSkipped: 1,
+    errors: [],
+    warnings: [reason],
+  });
+}
+
+function councilSourceFromDoc(id: string, data: admin.firestore.DocumentData): CouncilSource {
+  return {
+    councilId: String(data.councilId ?? id),
+    name: String(data.name ?? data.councilName ?? id),
+    sourceType: String(data.sourceType ?? "unverified") as CouncilSource["sourceType"],
+    baseUrl: String(data.baseUrl ?? data.sourceUrl ?? ""),
+    datasetId: data.datasetId ? String(data.datasetId) : undefined,
+    layerIndex: typeof data.layerIndex === "number" ? data.layerIndex : undefined,
+    datasetLabel: data.datasetLabel ? String(data.datasetLabel) : undefined,
+    license: data.license ? String(data.license) : undefined,
+    restrictionTypes: Array.isArray(data.restrictionTypes) && data.restrictionTypes.length > 0
+      ? data.restrictionTypes
+      : ["other"],
+    fieldMapping: data.fieldMapping && typeof data.fieldMapping === "object"
+      ? data.fieldMapping
+      : undefined,
+    active: data.active === true,
+    priority: typeof data.priority === "number" ? data.priority : 999,
+    refreshFrequency: data.refreshFrequency,
+    notes: data.notes,
+  };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

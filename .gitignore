@@ -5,6 +5,7 @@
 build/
 coverage/
 node_modules/
+functions/lib/
 *.log
 
 # Firebase / local secrets
