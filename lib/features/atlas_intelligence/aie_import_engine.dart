@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:http/http.dart' as http;
 
 import '../../data/firestore_collections.dart';
 import '../../firebase/parkpal_firebase_options.dart';
@@ -10,11 +11,14 @@ class AieImportEngine {
   AieImportEngine({
     FirebaseFirestore? firestore,
     AieParserEngine parser = const AieParserEngine(),
+    AieFetchClient? fetchClient,
   })  : _firestore = firestore,
-        _parser = parser;
+        _parser = parser,
+        _fetchClient = fetchClient ?? const HttpAieFetchClient();
 
   final FirebaseFirestore? _firestore;
   final AieParserEngine _parser;
+  final AieFetchClient _fetchClient;
 
   Future<AieImportResult> importOfficialSource({
     required AieSource source,
@@ -22,7 +26,8 @@ class AieImportEngine {
     String requestedBy = 'ParkPal Admin',
   }) async {
     final batchId = 'aie_${DateTime.now().toUtc().millisecondsSinceEpoch}';
-    final checksum = _checksum(rawData);
+    final resolved = await resolveImportInput(source: source, input: rawData);
+    final checksum = resolved.checksum;
     final messages = <String>[];
     var imported = 0;
     var changed = 0;
@@ -46,9 +51,56 @@ class AieImportEngine {
           messages: const ['Firestore unavailable.'],
         );
       }
-
       final sourceRef =
           firestore.collection(AieCollections.sources).doc(source.sourceId);
+      messages.addAll(resolved.messages);
+      if (!resolved.success) {
+        failed++;
+        await sourceRef.set({
+          ...source.toMap(),
+          'fetchUrl': resolved.fetchUrl,
+          'canonicalSourceUrl': source.sourceUrl,
+          'importStatus': AieImportStatus.failed.name,
+          'lastFailedImport': FieldValue.serverTimestamp(),
+          'nextScheduledCheck': Timestamp.fromDate(_nextCheck(source)),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        await _deadLetter(
+          firestore,
+          batchId,
+          source,
+          resolved.messages.join(' '),
+        );
+        await _writeImportLog(
+          firestore,
+          batchId: batchId,
+          source: source,
+          status: AieImportStatus.failed,
+          checksum: checksum,
+          imported: imported,
+          changed: changed,
+          skipped: skipped,
+          failed: failed,
+          conflicts: conflicts,
+          missions: missions,
+          messages: messages,
+          fetchUrl: resolved.fetchUrl,
+          contentType: resolved.contentType,
+          fetchedAt: resolved.fetchedAt,
+        );
+        return AieImportResult(
+          batchId: batchId,
+          imported: imported,
+          changed: changed,
+          skipped: skipped,
+          failed: failed,
+          conflicts: conflicts,
+          missionsCreated: missions,
+          status: AieImportStatus.failed,
+          messages: messages,
+        );
+      }
+
       final existingSource = await sourceRef.get();
       final previousChecksum = existingSource.data()?['checksum'] as String?;
 
@@ -73,6 +125,9 @@ class AieImportEngine {
           conflicts: conflicts,
           missions: missions,
           messages: const ['Source disabled.'],
+          fetchUrl: resolved.fetchUrl,
+          contentType: resolved.contentType,
+          fetchedAt: resolved.fetchedAt,
         );
         return AieImportResult(
           batchId: batchId,
@@ -87,11 +142,17 @@ class AieImportEngine {
         );
       }
 
-      if (previousChecksum == checksum) {
+      if (isDuplicateChecksum(previousChecksum, checksum)) {
         skipped++;
         await sourceRef.set({
           ...source.toMap(),
           'checksum': checksum,
+          'fetchUrl': resolved.fetchUrl,
+          'canonicalSourceUrl': source.sourceUrl,
+          'contentType': resolved.contentType,
+          'fetchedAt': resolved.fetchedAt == null
+              ? null
+              : Timestamp.fromDate(resolved.fetchedAt!),
           'importStatus': AieImportStatus.unchanged.name,
           'nextScheduledCheck': Timestamp.fromDate(_nextCheck(source)),
           'updatedAt': FieldValue.serverTimestamp(),
@@ -108,7 +169,13 @@ class AieImportEngine {
           failed: failed,
           conflicts: conflicts,
           missions: missions,
-          messages: const ['Checksum unchanged. No records processed.'],
+          messages: [
+            ...messages,
+            'Checksum unchanged. No records processed.',
+          ],
+          fetchUrl: resolved.fetchUrl,
+          contentType: resolved.contentType,
+          fetchedAt: resolved.fetchedAt,
         );
         return AieImportResult(
           batchId: batchId,
@@ -119,14 +186,22 @@ class AieImportEngine {
           conflicts: conflicts,
           missionsCreated: missions,
           status: AieImportStatus.unchanged,
-          messages: const ['Checksum unchanged. No records processed.'],
+          messages: [
+            ...messages,
+            'Checksum unchanged. No records processed.',
+          ],
         );
       }
 
-      final restrictions = _parser.parse(source: source, rawData: rawData);
+      final restrictions = _parser.parse(
+        source: source,
+        rawData: resolved.body,
+      );
       if (restrictions.isEmpty) {
         failed++;
-        await _deadLetter(firestore, batchId, source, 'No records parsed.');
+        final reason = _parserFailureMessage(source.documentType);
+        messages.add(reason);
+        await _deadLetter(firestore, batchId, source, reason);
       }
 
       for (final restriction in restrictions) {
@@ -261,6 +336,12 @@ class AieImportEngine {
       await sourceRef.set({
         ...source.toMap(),
         'checksum': checksum,
+        'fetchUrl': resolved.fetchUrl,
+        'canonicalSourceUrl': source.sourceUrl,
+        'contentType': resolved.contentType,
+        'fetchedAt': resolved.fetchedAt == null
+            ? null
+            : Timestamp.fromDate(resolved.fetchedAt!),
         'version': (source.version + (imported > 0 ? 1 : 0)),
         'confidence': imported > 0 ? 1.0 : source.confidence,
         'importStatus': status.name,
@@ -286,6 +367,9 @@ class AieImportEngine {
         conflicts: conflicts,
         missions: missions,
         messages: messages,
+        fetchUrl: resolved.fetchUrl,
+        contentType: resolved.contentType,
+        fetchedAt: resolved.fetchedAt,
       );
       await _audit(firestore, 'import_finished', {
         'batchId': batchId,
@@ -320,6 +404,86 @@ class AieImportEngine {
         messages: [...messages, 'Import failed: $error'],
       );
     }
+  }
+
+  Future<AieResolvedImportInput> resolveImportInput({
+    required AieSource source,
+    required String input,
+  }) async {
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) {
+      return AieResolvedImportInput.failure(
+        checksum: _checksum(''),
+        messages: const ['Empty response: paste data or a download URL.'],
+      );
+    }
+
+    final inputUri = Uri.tryParse(trimmed);
+    final isUrl = inputUri != null &&
+        (inputUri.scheme == 'http' || inputUri.scheme == 'https') &&
+        inputUri.host.isNotEmpty;
+
+    if (!isUrl) {
+      final warnings = _councilWarnings(source, trimmed, null);
+      return AieResolvedImportInput.success(
+        body: trimmed,
+        checksum: _checksum(trimmed),
+        messages: warnings,
+      );
+    }
+
+    try {
+      final response = await _fetchClient.get(inputUri);
+      if (response.unreachable) {
+        return AieResolvedImportInput.failure(
+          checksum: _checksum(trimmed),
+          fetchUrl: inputUri.toString(),
+          messages: const ['URL unreachable.'],
+        );
+      }
+      if (response.statusCode != 200) {
+        return AieResolvedImportInput.failure(
+          checksum: _checksum(trimmed),
+          fetchUrl: response.finalUrl ?? inputUri.toString(),
+          contentType: response.contentType,
+          messages: ['HTTP status error: ${response.statusCode}.'],
+        );
+      }
+      if (response.body.trim().isEmpty) {
+        return AieResolvedImportInput.failure(
+          checksum: _checksum(''),
+          fetchUrl: response.finalUrl ?? inputUri.toString(),
+          contentType: response.contentType,
+          messages: const ['Empty response.'],
+        );
+      }
+
+      final contentType = response.contentType;
+      final messages = [
+        'Fetched official download URL.',
+        ..._contentTypeWarnings(source.documentType, contentType),
+        ..._councilWarnings(
+            source, response.body, response.finalUrl ?? trimmed),
+      ];
+      return AieResolvedImportInput.success(
+        body: response.body,
+        checksum: _checksum(response.body),
+        fetchUrl: response.finalUrl ?? inputUri.toString(),
+        contentType: contentType,
+        fetchedAt: DateTime.now().toUtc(),
+        messages: messages,
+      );
+    } catch (error) {
+      return AieResolvedImportInput.failure(
+        checksum: _checksum(trimmed),
+        fetchUrl: inputUri.toString(),
+        messages: ['URL unreachable: $error'],
+      );
+    }
+  }
+
+  bool isDuplicateChecksum(String? previousChecksum, String checksum) {
+    return previousChecksum != null && previousChecksum == checksum;
   }
 
   Future<List<AieSource>> fetchSources({int limit = 50}) async {
@@ -590,6 +754,9 @@ class AieImportEngine {
     required int conflicts,
     required int missions,
     required List<String> messages,
+    String? fetchUrl,
+    String? contentType,
+    DateTime? fetchedAt,
   }) async {
     await firestore.collection(AieCollections.importLogs).doc(batchId).set({
       'batchId': batchId,
@@ -598,6 +765,10 @@ class AieImportEngine {
       'council': source.council,
       'status': status.name,
       'checksum': checksum,
+      'canonicalSourceUrl': source.sourceUrl,
+      'fetchUrl': fetchUrl,
+      'contentType': contentType,
+      'fetchedAt': fetchedAt == null ? null : Timestamp.fromDate(fetchedAt),
       'imported': imported,
       'changed': changed,
       'skipped': skipped,
@@ -692,6 +863,76 @@ class AieImportEngine {
     return 'Verify $roadName';
   }
 
+  String _parserFailureMessage(AieDocumentType documentType) {
+    return switch (documentType) {
+      AieDocumentType.csv =>
+        'Invalid CSV: no valid rows found. Check headers such as roadName/streetName and restrictionType.',
+      AieDocumentType.json => 'Invalid JSON: parser found no valid records.',
+      AieDocumentType.geojson =>
+        'Invalid GeoJSON: parser found no valid features.',
+      AieDocumentType.xml ||
+      AieDocumentType.rss =>
+        'Invalid XML/RSS: parser found no parking restrictions.',
+      AieDocumentType.html =>
+        'Parser failed: HTML did not contain recognisable parking restrictions.',
+      AieDocumentType.pdf ||
+      AieDocumentType.docx =>
+        'Unsupported document type for direct URL parsing: extract text first or connect a document parser.',
+    };
+  }
+
+  List<String> _contentTypeWarnings(
+    AieDocumentType selected,
+    String? contentType,
+  ) {
+    if (contentType == null || contentType.isEmpty) return const [];
+    final lower = contentType.toLowerCase();
+    final looksCsv = lower.contains('csv') || lower.contains('text/plain');
+    final looksJson = lower.contains('json');
+    final looksXml = lower.contains('xml') || lower.contains('rss');
+    final looksHtml = lower.contains('html');
+    final matches = switch (selected) {
+      AieDocumentType.csv => looksCsv,
+      AieDocumentType.json || AieDocumentType.geojson => looksJson,
+      AieDocumentType.xml || AieDocumentType.rss => looksXml,
+      AieDocumentType.html => looksHtml,
+      AieDocumentType.pdf => lower.contains('pdf'),
+      AieDocumentType.docx =>
+        lower.contains('word') || lower.contains('officedocument'),
+    };
+    if (matches) return const [];
+    return [
+      'Unsupported document type warning: response content-type "$contentType" may not match selected ${selected.name.toUpperCase()}.',
+    ];
+  }
+
+  List<String> _councilWarnings(
+    AieSource source,
+    String body,
+    String? url,
+  ) {
+    final selected = source.council.toLowerCase();
+    final previewLength = body.length > 5000 ? 5000 : body.length;
+    final haystack =
+        '${url ?? ''}\n${body.substring(0, previewLength)}'.toLowerCase();
+    const councils = {
+      'westminster': 'Westminster',
+      'camden': 'Camden',
+      'kensington': 'Kensington and Chelsea',
+      'chelsea': 'Kensington and Chelsea',
+      'islington': 'Islington',
+      'lambeth': 'Lambeth',
+    };
+    final selectedKey =
+        councils.keys.where((key) => selected.contains(key)).firstOrNull;
+    final indicated = councils.keys.where((key) => haystack.contains(key));
+    final mismatch = indicated
+        .where((key) => selectedKey == null || key != selectedKey)
+        .toList(growable: false);
+    if (mismatch.isEmpty) return const [];
+    return const ['Selected council may not match source dataset.'];
+  }
+
   String _changeSummary(
     AieChangeType changeType,
     AieStructuredRestriction restriction,
@@ -738,6 +979,107 @@ class AieImportEngine {
       hash = ((hash << 5) + hash + code) & 0x7fffffff;
     }
     return hash.toRadixString(16);
+  }
+}
+
+class AieResolvedImportInput {
+  const AieResolvedImportInput({
+    required this.success,
+    required this.body,
+    required this.checksum,
+    required this.messages,
+    this.fetchUrl,
+    this.contentType,
+    this.fetchedAt,
+  });
+
+  factory AieResolvedImportInput.success({
+    required String body,
+    required String checksum,
+    List<String> messages = const [],
+    String? fetchUrl,
+    String? contentType,
+    DateTime? fetchedAt,
+  }) {
+    return AieResolvedImportInput(
+      success: true,
+      body: body,
+      checksum: checksum,
+      messages: messages,
+      fetchUrl: fetchUrl,
+      contentType: contentType,
+      fetchedAt: fetchedAt,
+    );
+  }
+
+  factory AieResolvedImportInput.failure({
+    required String checksum,
+    required List<String> messages,
+    String? fetchUrl,
+    String? contentType,
+  }) {
+    return AieResolvedImportInput(
+      success: false,
+      body: '',
+      checksum: checksum,
+      messages: messages,
+      fetchUrl: fetchUrl,
+      contentType: contentType,
+    );
+  }
+
+  final bool success;
+  final String body;
+  final String checksum;
+  final List<String> messages;
+  final String? fetchUrl;
+  final String? contentType;
+  final DateTime? fetchedAt;
+}
+
+class AieFetchResponse {
+  const AieFetchResponse({
+    required this.statusCode,
+    required this.body,
+    this.contentType,
+    this.finalUrl,
+    this.unreachable = false,
+  });
+
+  const AieFetchResponse.unreachable()
+      : statusCode = 0,
+        body = '',
+        contentType = null,
+        finalUrl = null,
+        unreachable = true;
+
+  final int statusCode;
+  final String body;
+  final String? contentType;
+  final String? finalUrl;
+  final bool unreachable;
+}
+
+abstract interface class AieFetchClient {
+  Future<AieFetchResponse> get(Uri uri);
+}
+
+class HttpAieFetchClient implements AieFetchClient {
+  const HttpAieFetchClient();
+
+  @override
+  Future<AieFetchResponse> get(Uri uri) async {
+    try {
+      final response = await http.get(uri);
+      return AieFetchResponse(
+        statusCode: response.statusCode,
+        body: response.body,
+        contentType: response.headers['content-type'],
+        finalUrl: uri.toString(),
+      );
+    } catch (_) {
+      return const AieFetchResponse.unreachable();
+    }
   }
 }
 

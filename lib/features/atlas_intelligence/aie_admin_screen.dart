@@ -159,7 +159,7 @@ class _AieAdminScreenState extends State<AieAdminScreen> {
             ),
             if (_lastResult != null) ...[
               const SizedBox(height: 18),
-              _LastResultCard(result: _lastResult!),
+              _LastResultCard(result: _lastResult!, onRetry: _runImport),
             ],
             const SizedBox(height: 24),
             _Section(
@@ -265,7 +265,7 @@ class _ImportPanel extends StatelessWidget {
           Text('Manual official-source import', style: adminHeading(size: 32)),
           const SizedBox(height: 8),
           Text(
-            'AIE does not scrape here. Paste an official source export/body from council pages, TROs, CPZ data, JSON, CSV, XML, RSS or GeoJSON. Checksum detection ensures unchanged sources are skipped.',
+            'AIE does not scrape here. Paste official data from council pages, TROs, CPZ data, JSON, CSV, XML, RSS or GeoJSON — or paste the official file download URL. Checksum detection ensures unchanged sources are skipped.',
             style: adminBody(color: ParkPalAdminColors.muted),
           ),
           const SizedBox(height: 18),
@@ -305,7 +305,9 @@ class _ImportPanel extends StatelessWidget {
             controller: rawData,
             maxLines: 8,
             decoration: const InputDecoration(
-              labelText: 'Official source body / export',
+              labelText: 'Paste official data or download URL',
+              helperText:
+                  'Paste CSV/JSON/XML/GeoJSON content, or paste the official download URL. Atlas will fetch and validate it.',
               alignLabelWithHint: true,
             ),
           ),
@@ -346,8 +348,7 @@ class _TwoColumnLists extends StatelessWidget {
                       _MapRow(
                         title:
                             log['sourceId']?.toString() ?? log['id'].toString(),
-                        subtitle:
-                            '${log['status'] ?? 'unknown'} • imported ${log['imported'] ?? 0} • failed ${log['failed'] ?? 0}',
+                        subtitle: _logSubtitle(log),
                       ),
                   ],
                 ),
@@ -383,29 +384,75 @@ class _TwoColumnLists extends StatelessWidget {
       },
     );
   }
+
+  String _logSubtitle(Map<String, Object?> log) {
+    final messages = (log['messages'] as List?)
+            ?.map((value) => value.toString())
+            .where((value) => value.trim().isNotEmpty)
+            .join(' • ') ??
+        '';
+    final fetchUrl = log['fetchUrl']?.toString();
+    return [
+      '${log['status'] ?? 'unknown'}',
+      'imported ${log['imported'] ?? 0}',
+      'failed ${log['failed'] ?? 0}',
+      if (fetchUrl != null && fetchUrl.isNotEmpty) 'fetch: $fetchUrl',
+      if (messages.isNotEmpty) messages,
+    ].join(' • ');
+  }
 }
 
 class _LastResultCard extends StatelessWidget {
-  const _LastResultCard({required this.result});
+  const _LastResultCard({required this.result, required this.onRetry});
 
   final AieImportResult result;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: adminGlassDecoration(),
-      child: Wrap(
-        spacing: 18,
-        runSpacing: 10,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _MiniStat(label: 'Status', value: result.status.name),
-          _MiniStat(label: 'Imported', value: '${result.imported}'),
-          _MiniStat(label: 'Changed', value: '${result.changed}'),
-          _MiniStat(label: 'Skipped', value: '${result.skipped}'),
-          _MiniStat(label: 'Failed', value: '${result.failed}'),
-          _MiniStat(label: 'Conflicts', value: '${result.conflicts}'),
-          _MiniStat(label: 'Missions', value: '${result.missionsCreated}'),
+          Wrap(
+            spacing: 18,
+            runSpacing: 10,
+            children: [
+              _MiniStat(label: 'Status', value: result.status.name),
+              _MiniStat(label: 'Imported', value: '${result.imported}'),
+              _MiniStat(label: 'Changed', value: '${result.changed}'),
+              _MiniStat(label: 'Skipped', value: '${result.skipped}'),
+              _MiniStat(label: 'Failed', value: '${result.failed}'),
+              _MiniStat(label: 'Conflicts', value: '${result.conflicts}'),
+              _MiniStat(label: 'Missions', value: '${result.missionsCreated}'),
+            ],
+          ),
+          if (result.messages.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            for (final message in result.messages)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  message,
+                  style: adminBody(
+                    color: result.failed > 0
+                        ? ParkPalAdminColors.red
+                        : ParkPalAdminColors.muted,
+                    size: 12,
+                  ),
+                ),
+              ),
+          ],
+          if (result.failed > 0) ...[
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_outlined),
+              label: const Text('Retry import'),
+            ),
+          ],
         ],
       ),
     );

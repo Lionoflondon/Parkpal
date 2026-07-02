@@ -1,0 +1,152 @@
+import 'package:parkpal/features/atlas_intelligence/aie_import_engine.dart';
+import 'package:parkpal/features/atlas_intelligence/aie_models.dart';
+import 'package:parkpal/features/atlas_intelligence/aie_parser_engine.dart';
+import 'package:test/test.dart';
+
+void main() {
+  const westminsterSource = AieSource(
+    sourceId: 'westminster_csv',
+    sourceUrl: 'https://www.westminster.gov.uk/parking.csv',
+    council: 'Westminster City Council',
+    sourceType: AieSourceType.openDataApi,
+    documentType: AieDocumentType.csv,
+    importStatus: AieImportStatus.idle,
+    version: 0,
+    confidence: 1,
+    enabled: true,
+  );
+
+  test('raw CSV import input is accepted and parsed', () async {
+    final engine = AieImportEngine(fetchClient: _FakeFetchClient());
+    final resolved = await engine.resolveImportInput(
+      source: westminsterSource,
+      input:
+          'roadName,restrictionType,activeHours\nBaker Street,No Waiting,08:30-18:30',
+    );
+    final records = const AieParserEngine().parse(
+      source: westminsterSource,
+      rawData: resolved.body,
+    );
+
+    expect(resolved.success, isTrue);
+    expect(resolved.fetchUrl, isNull);
+    expect(records, hasLength(1));
+    expect(records.single.roadName, 'Baker Street');
+  });
+
+  test('CSV URL import fetches downloadable official data', () async {
+    final engine = AieImportEngine(
+      fetchClient: _FakeFetchClient({
+        'https://data.westminster.gov.uk/parking.csv': const AieFetchResponse(
+          statusCode: 200,
+          contentType: 'text/csv',
+          finalUrl: 'https://data.westminster.gov.uk/parking.csv',
+          body:
+              'roadName,restrictionType,activeHours\nOxford Street,No Waiting,08:30-18:30',
+        ),
+      }),
+    );
+    final resolved = await engine.resolveImportInput(
+      source: westminsterSource,
+      input: 'https://data.westminster.gov.uk/parking.csv',
+    );
+    final records = const AieParserEngine().parse(
+      source: westminsterSource,
+      rawData: resolved.body,
+    );
+
+    expect(resolved.success, isTrue);
+    expect(resolved.fetchUrl, 'https://data.westminster.gov.uk/parking.csv');
+    expect(resolved.contentType, 'text/csv');
+    expect(resolved.fetchedAt, isNotNull);
+    expect(records.single.roadName, 'Oxford Street');
+  });
+
+  test('empty body fails clearly', () async {
+    final engine = AieImportEngine(fetchClient: _FakeFetchClient());
+    final resolved = await engine.resolveImportInput(
+      source: westminsterSource,
+      input: '   ',
+    );
+
+    expect(resolved.success, isFalse);
+    expect(resolved.messages.join(' '), contains('Empty response'));
+  });
+
+  test('unreachable URL fails clearly', () async {
+    final engine = AieImportEngine(fetchClient: _FakeFetchClient());
+    final resolved = await engine.resolveImportInput(
+      source: westminsterSource,
+      input: 'https://example.invalid/missing.csv',
+    );
+
+    expect(resolved.success, isFalse);
+    expect(resolved.messages, contains('URL unreachable.'));
+  });
+
+  test('invalid CSV produces no parsed records', () async {
+    final resolved = await AieImportEngine(fetchClient: _FakeFetchClient())
+        .resolveImportInput(
+      source: westminsterSource,
+      input: 'not,a,parking,dataset\n1,2,3,4',
+    );
+    final records = const AieParserEngine().parse(
+      source: westminsterSource,
+      rawData: resolved.body,
+    );
+
+    expect(resolved.success, isTrue);
+    expect(records, isEmpty);
+  });
+
+  test('duplicate checksum skip is detected', () async {
+    final engine = AieImportEngine(fetchClient: _FakeFetchClient());
+    final first = await engine.resolveImportInput(
+      source: westminsterSource,
+      input:
+          'roadName,restrictionType,activeHours\nBaker Street,No Waiting,08:30-18:30',
+    );
+    final second = await engine.resolveImportInput(
+      source: westminsterSource,
+      input:
+          'roadName,restrictionType,activeHours\nBaker Street,No Waiting,08:30-18:30',
+    );
+
+    expect(engine.isDuplicateChecksum(first.checksum, second.checksum), isTrue);
+  });
+
+  test('selected council/source mismatch warning is returned', () async {
+    final engine = AieImportEngine(
+      fetchClient: _FakeFetchClient({
+        'https://opendata.camden.gov.uk/parking.csv': const AieFetchResponse(
+          statusCode: 200,
+          contentType: 'text/csv',
+          finalUrl: 'https://opendata.camden.gov.uk/parking.csv',
+          body:
+              'roadName,council,restrictionType\nCamden High Street,Camden Council,Permit Parking',
+        ),
+      }),
+    );
+    final resolved = await engine.resolveImportInput(
+      source: westminsterSource,
+      input: 'https://opendata.camden.gov.uk/parking.csv',
+    );
+
+    expect(resolved.success, isTrue);
+    expect(
+      resolved.messages,
+      contains('Selected council may not match source dataset.'),
+    );
+  });
+}
+
+class _FakeFetchClient implements AieFetchClient {
+  _FakeFetchClient([this.responses = const {}]);
+
+  final Map<String, AieFetchResponse> responses;
+
+  @override
+  Future<AieFetchResponse> get(Uri uri) async {
+    return responses[uri.toString()] ?? const AieFetchResponse.unreachable();
+  }
+}
