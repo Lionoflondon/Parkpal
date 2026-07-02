@@ -1,0 +1,602 @@
+import 'package:flutter/material.dart';
+
+import '../../admin/parkpal_admin_theme.dart';
+import 'aie_import_engine.dart';
+import 'aie_models.dart';
+
+class AieAdminScreen extends StatefulWidget {
+  const AieAdminScreen({super.key});
+
+  @override
+  State<AieAdminScreen> createState() => _AieAdminScreenState();
+}
+
+class _AieAdminScreenState extends State<AieAdminScreen> {
+  final _engine = AieImportEngine();
+  final _sourceName = TextEditingController();
+  final _sourceId = TextEditingController();
+  final _sourceUrl = TextEditingController();
+  final _council = TextEditingController();
+  final _rawData = TextEditingController();
+  AieSourceType _sourceType = AieSourceType.councilParkingPage;
+  AieDocumentType _documentType = AieDocumentType.csv;
+  Future<AieDashboardSummary>? _summary;
+  Future<List<AieSource>>? _sources;
+  AieImportResult? _lastResult;
+  bool _importing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  @override
+  void dispose() {
+    _sourceName.dispose();
+    _sourceId.dispose();
+    _sourceUrl.dispose();
+    _council.dispose();
+    _rawData.dispose();
+    super.dispose();
+  }
+
+  void _refresh() {
+    _summary = _engine.fetchDashboardSummary();
+    _sources = _engine.fetchSources();
+  }
+
+  Future<void> _runImport() async {
+    if (_sourceId.text.trim().isEmpty ||
+        _sourceUrl.text.trim().isEmpty ||
+        _council.text.trim().isEmpty ||
+        _rawData.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Source ID, URL, council and raw data are required.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _importing = true);
+    final source = AieSource(
+      sourceId: _sourceId.text.trim(),
+      sourceName: _sourceName.text.trim().isEmpty
+          ? _sourceId.text.trim()
+          : _sourceName.text.trim(),
+      sourceUrl: _sourceUrl.text.trim(),
+      council: _council.text.trim(),
+      sourceType: _sourceType,
+      documentType: _documentType,
+      importStatus: AieImportStatus.queued,
+      version: 0,
+      confidence: 1,
+      enabled: true,
+    );
+    final result = await _engine.importOfficialSource(
+      source: source,
+      rawData: _rawData.text,
+      requestedBy: 'ParkPal Admin',
+    );
+    if (!mounted) return;
+    setState(() {
+      _lastResult = result;
+      _importing = false;
+      _refresh();
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('AIE import ${result.status.name}.')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<AieDashboardSummary>(
+      future: _summary,
+      builder: (context, snapshot) {
+        final summary = snapshot.data ?? AieDashboardSummary.empty;
+        return ListView(
+          children: [
+            Text('Atlas Intelligence Engine', style: adminHeading(size: 46)),
+            const SizedBox(height: 8),
+            Text(
+              'Authoritative official-source intelligence for discovery, import, IRIS structuring, Atlas versioning, conflicts, missions and Evidence Vault distribution.',
+              style: adminBody(color: ParkPalAdminColors.muted),
+            ),
+            const SizedBox(height: 24),
+            _ArchitectureCard(),
+            const SizedBox(height: 20),
+            Wrap(
+              spacing: 14,
+              runSpacing: 14,
+              children: [
+                _MetricTile(
+                  label: 'Connected councils',
+                  value: '${summary.connectedCouncils}',
+                ),
+                _MetricTile(
+                    label: 'Import queue', value: '${summary.importQueue}'),
+                _MetricTile(
+                  label: 'Failed imports',
+                  value: '${summary.failedImports}',
+                  accent: ParkPalAdminColors.red,
+                ),
+                _MetricTile(
+                    label: 'Import logs', value: '${summary.importLogs}'),
+                _MetricTile(
+                  label: 'Pending conflicts',
+                  value: '${summary.pendingConflicts}',
+                  accent: ParkPalAdminColors.amber,
+                ),
+                _MetricTile(
+                  label: 'Pending verification',
+                  value: '${summary.pendingVerification}',
+                ),
+                _MetricTile(
+                    label: 'Stale roads', value: '${summary.staleRoads}'),
+                _MetricTile(
+                  label: 'Mission queue',
+                  value: '${summary.missionQueue}',
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            _ImportPanel(
+              sourceName: _sourceName,
+              sourceId: _sourceId,
+              sourceUrl: _sourceUrl,
+              council: _council,
+              rawData: _rawData,
+              sourceType: _sourceType,
+              documentType: _documentType,
+              importing: _importing,
+              onSourceTypeChanged: (value) =>
+                  setState(() => _sourceType = value),
+              onDocumentTypeChanged: (value) =>
+                  setState(() => _documentType = value),
+              onImport: _runImport,
+            ),
+            if (_lastResult != null) ...[
+              const SizedBox(height: 18),
+              _LastResultCard(result: _lastResult!),
+            ],
+            const SizedBox(height: 24),
+            _Section(
+              title: 'Connected councils',
+              child: FutureBuilder<List<AieSource>>(
+                future: _sources,
+                builder: (context, snapshot) {
+                  final sources = snapshot.data ?? const <AieSource>[];
+                  if (sources.isEmpty) {
+                    return const _EmptyPanel(
+                      'No AIE sources connected yet. Add an official source above and run a manual import.',
+                    );
+                  }
+                  return Column(
+                    children: [
+                      for (final source in sources) _SourceRow(source: source),
+                    ],
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 24),
+            _TwoColumnLists(summary: summary),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ArchitectureCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    const steps = [
+      'Official Sources',
+      'Source Connectors',
+      'Import Engine',
+      'Parser Engine',
+      'IRIS Knowledge Engine',
+      'Atlas Knowledge Graph',
+      'Evidence Vault • Mission Engine • Public API',
+    ];
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: adminGlassDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('AIE pipeline', style: adminHeading(size: 30)),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (var i = 0; i < steps.length; i++)
+                Chip(
+                  label: Text('${i + 1}. ${steps[i]}'),
+                  backgroundColor: Colors.white.withValues(alpha: 0.08),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ImportPanel extends StatelessWidget {
+  const _ImportPanel({
+    required this.sourceName,
+    required this.sourceId,
+    required this.sourceUrl,
+    required this.council,
+    required this.rawData,
+    required this.sourceType,
+    required this.documentType,
+    required this.importing,
+    required this.onSourceTypeChanged,
+    required this.onDocumentTypeChanged,
+    required this.onImport,
+  });
+
+  final TextEditingController sourceName;
+  final TextEditingController sourceId;
+  final TextEditingController sourceUrl;
+  final TextEditingController council;
+  final TextEditingController rawData;
+  final AieSourceType sourceType;
+  final AieDocumentType documentType;
+  final bool importing;
+  final ValueChanged<AieSourceType> onSourceTypeChanged;
+  final ValueChanged<AieDocumentType> onDocumentTypeChanged;
+  final VoidCallback onImport;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: adminGlassDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Manual official-source import', style: adminHeading(size: 32)),
+          const SizedBox(height: 8),
+          Text(
+            'AIE does not scrape here. Paste an official source export/body from council pages, TROs, CPZ data, JSON, CSV, XML, RSS or GeoJSON. Checksum detection ensures unchanged sources are skipped.',
+            style: adminBody(color: ParkPalAdminColors.muted),
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _SizedField(controller: sourceName, label: 'Source name'),
+              _SizedField(controller: sourceId, label: 'Source ID'),
+              _SizedField(controller: sourceUrl, label: 'Official URL'),
+              _SizedField(controller: council, label: 'Council'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _Dropdown<AieSourceType>(
+                label: 'Source type',
+                value: sourceType,
+                values: AieSourceType.values,
+                labelFor: aieSourceTypeLabel,
+                onChanged: onSourceTypeChanged,
+              ),
+              _Dropdown<AieDocumentType>(
+                label: 'Document type',
+                value: documentType,
+                values: AieDocumentType.values,
+                labelFor: (value) => value.name.toUpperCase(),
+                onChanged: onDocumentTypeChanged,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: rawData,
+            maxLines: 8,
+            decoration: const InputDecoration(
+              labelText: 'Official source body / export',
+              alignLabelWithHint: true,
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: importing ? null : onImport,
+            icon: importing
+                ? const SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.cloud_upload_outlined),
+            label: Text(importing ? 'Importing…' : 'Run AIE import'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TwoColumnLists extends StatelessWidget {
+  const _TwoColumnLists({required this.summary});
+
+  final AieDashboardSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked = constraints.maxWidth < 900;
+        final logs = _Section(
+          title: 'Import logs',
+          child: summary.recentLogs.isEmpty
+              ? const _EmptyPanel('No import logs yet.')
+              : Column(
+                  children: [
+                    for (final log in summary.recentLogs)
+                      _MapRow(
+                        title:
+                            log['sourceId']?.toString() ?? log['id'].toString(),
+                        subtitle:
+                            '${log['status'] ?? 'unknown'} • imported ${log['imported'] ?? 0} • failed ${log['failed'] ?? 0}',
+                      ),
+                  ],
+                ),
+        );
+        final changes = _Section(
+          title: 'Change history',
+          child: summary.recentChanges.isEmpty
+              ? const _EmptyPanel('No detected changes yet.')
+              : Column(
+                  children: [
+                    for (final change in summary.recentChanges)
+                      _MapRow(
+                        title: change['roadName']?.toString() ??
+                            change['id'].toString(),
+                        subtitle: change['changeSummary']?.toString() ??
+                            change['changeType']?.toString() ??
+                            'Change recorded',
+                      ),
+                  ],
+                ),
+        );
+        if (stacked) {
+          return Column(children: [logs, const SizedBox(height: 16), changes]);
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: logs),
+            const SizedBox(width: 16),
+            Expanded(child: changes),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _LastResultCard extends StatelessWidget {
+  const _LastResultCard({required this.result});
+
+  final AieImportResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: adminGlassDecoration(),
+      child: Wrap(
+        spacing: 18,
+        runSpacing: 10,
+        children: [
+          _MiniStat(label: 'Status', value: result.status.name),
+          _MiniStat(label: 'Imported', value: '${result.imported}'),
+          _MiniStat(label: 'Changed', value: '${result.changed}'),
+          _MiniStat(label: 'Skipped', value: '${result.skipped}'),
+          _MiniStat(label: 'Failed', value: '${result.failed}'),
+          _MiniStat(label: 'Conflicts', value: '${result.conflicts}'),
+          _MiniStat(label: 'Missions', value: '${result.missionsCreated}'),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetricTile extends StatelessWidget {
+  const _MetricTile({
+    required this.label,
+    required this.value,
+    this.accent = ParkPalAdminColors.cyan,
+  });
+
+  final String label;
+  final String value;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 230,
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: adminGlassDecoration(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: adminBody(color: ParkPalAdminColors.muted)),
+            const SizedBox(height: 10),
+            Text(value, style: adminHeading(size: 34).copyWith(color: accent)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SourceRow extends StatelessWidget {
+  const _SourceRow({required this.source});
+
+  final AieSource source;
+
+  @override
+  Widget build(BuildContext context) {
+    return _MapRow(
+      title: source.sourceName ?? source.sourceId,
+      subtitle:
+          '${source.council} • ${aieSourceTypeLabel(source.sourceType)} • ${source.importStatus.name} • v${source.version}',
+    );
+  }
+}
+
+class _MapRow extends StatelessWidget {
+  const _MapRow({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: ParkPalAdminColors.glassBorder),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.hub_outlined, color: ParkPalAdminColors.cyan),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: adminBody(weight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: adminBody(color: ParkPalAdminColors.muted, size: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Section extends StatelessWidget {
+  const _Section({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: adminGlassDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: adminHeading(size: 30)),
+          const SizedBox(height: 14),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyPanel extends StatelessWidget {
+  const _EmptyPanel(this.message);
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(message, style: adminBody(color: ParkPalAdminColors.muted));
+  }
+}
+
+class _MiniStat extends StatelessWidget {
+  const _MiniStat({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      label: Text('$label: $value'),
+      backgroundColor: Colors.white.withValues(alpha: 0.08),
+    );
+  }
+}
+
+class _SizedField extends StatelessWidget {
+  const _SizedField({required this.controller, required this.label});
+
+  final TextEditingController controller;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 260,
+      child: TextField(
+        controller: controller,
+        decoration: InputDecoration(labelText: label),
+      ),
+    );
+  }
+}
+
+class _Dropdown<T> extends StatelessWidget {
+  const _Dropdown({
+    required this.label,
+    required this.value,
+    required this.values,
+    required this.labelFor,
+    required this.onChanged,
+  });
+
+  final String label;
+  final T value;
+  final List<T> values;
+  final String Function(T value) labelFor;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 320,
+      child: DropdownButtonFormField<T>(
+        initialValue: value,
+        decoration: InputDecoration(labelText: label),
+        items: [
+          for (final item in values)
+            DropdownMenuItem<T>(
+              value: item,
+              child: Text(labelFor(item), overflow: TextOverflow.ellipsis),
+            ),
+        ],
+        onChanged: (value) {
+          if (value != null) onChanged(value);
+        },
+      ),
+    );
+  }
+}

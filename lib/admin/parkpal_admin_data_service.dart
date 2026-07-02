@@ -19,6 +19,9 @@ class ParkPalAdminCollections {
   static const alerts = 'parkpalAdminAlerts';
   static const adminUsers = 'parkpalAdminUsers';
   static const operationalSettings = 'parkpalOperationalSettings';
+  static const atlasIntelligenceSources = 'parkpal_aie_sources';
+  static const atlasIntelligenceImportLogs = 'parkpal_aie_import_logs';
+  static const atlasIntelligenceConflicts = 'parkpal_aie_conflicts';
 }
 
 class ParkPalAdminAccess {

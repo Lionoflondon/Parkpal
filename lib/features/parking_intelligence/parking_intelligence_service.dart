@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../data/firestore_collections.dart';
+import '../atlas_intelligence/aie_models.dart';
 import '../parking_query/parking_lookup_result.dart';
 import 'parking_intelligence_models.dart';
 
@@ -24,6 +25,7 @@ class ParkingIntelligenceService {
       ...await _roadEvidence(query),
       ...await _zoneEvidence(query),
       ...await _councilEvidence(query),
+      ...await _atlasIntelligenceEvidence(query),
       ...await _reportEvidence(query),
     ];
 
@@ -162,6 +164,44 @@ class ParkingIntelligenceService {
         reportCount: snapshot.docs.length,
       ),
     ];
+  }
+
+  Future<List<ParkingEvidence>> _atlasIntelligenceEvidence(String query) async {
+    final snapshot = await _safeQuery(() => _firestore
+        .collection(AieCollections.atlasRoads)
+        .where('roadName', isEqualTo: query)
+        .limit(3)
+        .get());
+    if (snapshot == null) return const [];
+
+    return snapshot.docs.map((doc) {
+      final data = doc.data();
+      final rules = (data['currentParkingRules'] as List?)
+              ?.whereType<Map>()
+              .map((value) => value.cast<String, Object?>())
+              .toList(growable: false) ??
+          const <Map<String, Object?>>[];
+      final firstRule = rules.isEmpty ? const <String, Object?>{} : rules.first;
+      return ParkingEvidence(
+        source: ParkingEvidenceSource.councilData,
+        data: {
+          ...firstRule,
+          'parkingAllowed': firstRule['parkingAllowed'],
+          'permitRequired': firstRule['permitRequired'],
+          'activeHours': firstRule['activeHours'],
+          'activeDays': firstRule['activeDays'],
+          'redRoute': firstRule['redRoute'],
+          'busLane': firstRule['busLane'],
+          'schoolStreet': firstRule['schoolStreet'],
+          'confidencePercent': data['confidencePercent'],
+          'source': 'atlas_intelligence_engine',
+        },
+        summary: firstRule['restrictionType'] as String? ??
+            'Official Atlas Intelligence rule found.',
+        verified: data['confidence'] == AieConfidence.official.name ||
+            data['confidence'] == AieConfidence.verifiedPlus.name,
+      );
+    }).toList(growable: false);
   }
 
   ParkingEvidence _selectEvidence(List<ParkingEvidence> evidence) {

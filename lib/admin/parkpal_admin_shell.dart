@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../features/atlas_intelligence/aie_admin_screen.dart';
 import '../features/parkpal_atlas/iris_coverage_forecast_admin_section.dart';
 import 'parkpal_admin_data_service.dart';
 import 'parkpal_admin_settings_screen.dart';
@@ -7,6 +8,7 @@ import 'parkpal_admin_theme.dart';
 
 enum ParkPalAdminSection {
   dashboard,
+  atlasIntelligence,
   councils,
   signRepository,
   roadRules,
@@ -116,6 +118,7 @@ class _ParkPalAdminShellState extends State<ParkPalAdminShell> {
   Widget _pageFor(ParkPalAdminSection section, String role) {
     return switch (section) {
       ParkPalAdminSection.dashboard => const _DashboardPage(),
+      ParkPalAdminSection.atlasIntelligence => const AieAdminScreen(),
       ParkPalAdminSection.coverageForecast =>
         const IrisCoverageForecastAdminSection(),
       ParkPalAdminSection.settings => const ParkPalAdminSettingsScreen(),
@@ -674,6 +677,7 @@ bool _canViewSection(String role, ParkPalAdminSection section) {
   if (role == 'reviewer') {
     return const {
       ParkPalAdminSection.dashboard,
+      ParkPalAdminSection.atlasIntelligence,
       ParkPalAdminSection.signRepository,
       ParkPalAdminSection.roadRules,
       ParkPalAdminSection.irisReview,
@@ -693,6 +697,7 @@ bool _canViewSection(String role, ParkPalAdminSection section) {
   if (role == 'atlasManager') {
     return const {
       ParkPalAdminSection.dashboard,
+      ParkPalAdminSection.atlasIntelligence,
       ParkPalAdminSection.councils,
       ParkPalAdminSection.signRepository,
       ParkPalAdminSection.roadRules,
@@ -707,6 +712,8 @@ bool _canViewSection(String role, ParkPalAdminSection section) {
 String _emptyCopyFor(ParkPalAdminSection section) {
   return switch (section) {
     ParkPalAdminSection.councils => 'No council rule sources loaded yet.',
+    ParkPalAdminSection.atlasIntelligence =>
+      'No Atlas Intelligence Engine records visible yet.',
     ParkPalAdminSection.signRepository => 'No sign records ready for review.',
     ParkPalAdminSection.roadRules => 'No road rules loaded yet.',
     ParkPalAdminSection.userChecks => 'No user parking checks recorded yet.',
@@ -744,6 +751,20 @@ _ModuleDefinition _definitionFor(ParkPalAdminSection section) {
             'Manage council metadata, official sources, import status and rule provenance.',
         collection: ParkPalAdminCollections.councils,
         capabilities: ['Sources', 'Import status', 'Rule provenance'],
+      ),
+    ParkPalAdminSection.atlasIntelligence => const _ModuleDefinition(
+        title: 'Atlas Intelligence',
+        description:
+            'Operate the Atlas Intelligence Engine: sources, imports, parsing, versioning, conflicts, missions and public intelligence APIs.',
+        collection: 'parkpal_aie_sources',
+        capabilities: [
+          'Official sources',
+          'Import engine',
+          'IRIS structuring',
+          'Atlas Knowledge Graph',
+          'Conflict engine',
+          'Mission queue'
+        ],
       ),
     ParkPalAdminSection.signRepository => const _ModuleDefinition(
         title: 'Sign Repository',
@@ -835,6 +856,7 @@ String _titleFor(ParkPalAdminSection section) {
 IconData _iconFor(ParkPalAdminSection section) {
   return switch (section) {
     ParkPalAdminSection.dashboard => Icons.dashboard_outlined,
+    ParkPalAdminSection.atlasIntelligence => Icons.hub_outlined,
     ParkPalAdminSection.councils => Icons.account_balance_outlined,
     ParkPalAdminSection.signRepository => Icons.traffic_outlined,
     ParkPalAdminSection.roadRules => Icons.edit_road_outlined,

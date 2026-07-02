@@ -205,6 +205,52 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /parkpal_aie_sources/{sourceId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /parkpal_aie_import_logs/{logId} {
+      allow read, create: if isParkPalAdmin();
+      allow update, delete: if false;
+    }
+
+    match /parkpal_aie_change_records/{changeId} {
+      allow read, create: if isParkPalAdmin();
+      allow update, delete: if false;
+    }
+
+    match /parkpal_aie_conflicts/{conflictId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /parkpal_aie_dead_letters/{deadLetterId} {
+      allow read, create: if isParkPalAdmin();
+      allow update, delete: if false;
+    }
+
+    match /parkpal_aie_audit_logs/{auditId} {
+      allow read, create: if isParkPalAdmin();
+      allow update, delete: if false;
+    }
+
+    match /parkpal_aie_api_rate_limits/{limitId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if false;
+    }
+
+    match /parkpal_atlas_knowledge_roads/{roadId} {
+      allow read: if true;
+      allow create, update: if isParkPalAdmin();
+      allow delete: if isAdmin();
+      match /versions/{versionId} {
+        allow read: if true;
+        allow create: if isParkPalAdmin();
+        allow update, delete: if false;
+      }
+    }
+
     match /parkpalEvidenceRecords/{recordId} {
       allow read, create, update: if isParkPalAdmin();
       allow delete: if isAdmin();
