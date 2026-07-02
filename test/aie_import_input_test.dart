@@ -298,6 +298,50 @@ void main() {
           'https://opendata.camden.gov.uk/api/v3/views/2579-98vt/export.csv?accessType=DOWNLOAD'),
     );
   });
+
+  test('Socrata dataset landing page resolves to CSV export endpoint',
+      () async {
+    final client = _FakeFetchClient({
+      'https://opendata.camden.gov.uk/api/views/2579-98vt.json':
+          const AieFetchResponse(
+        statusCode: 200,
+        contentType: 'application/json',
+        finalUrl: 'https://opendata.camden.gov.uk/api/views/2579-98vt.json',
+        body:
+            '{"name":"Westminster Parking Spaces","availableExportFormats":["json","csv","geojson"]}',
+      ),
+      'https://opendata.camden.gov.uk/api/v3/views/2579-98vt/export.csv?accessType=DOWNLOAD':
+          const AieFetchResponse(
+        statusCode: 200,
+        contentType: 'text/csv',
+        finalUrl:
+            'https://opendata.camden.gov.uk/api/v3/views/2579-98vt/export.csv?accessType=DOWNLOAD',
+        body:
+            'roadName,restrictionType,activeHours\nWestminster Bridge Road,Permit Parking,08:30-18:30',
+      ),
+    });
+    final engine = AieImportEngine(fetchClient: client);
+    final resolved = await engine.resolveImportInput(
+      source: westminsterSource,
+      input:
+          'https://opendata.camden.gov.uk/dataset/Westminster-Parking-Spaces/2579-98vt',
+    );
+
+    expect(resolved.success, isTrue);
+    expect(resolved.documentType, AieDocumentType.csv);
+    expect(resolved.fetchUrl, contains('/api/v3/views/2579-98vt/export.csv'));
+    expect(
+      resolved.diagnostics['resolvedEndpoint'],
+      'https://opendata.camden.gov.uk/api/v3/views/2579-98vt/export.csv?accessType=DOWNLOAD',
+    );
+    expect(resolved.diagnostics['datasetId'], '2579-98vt');
+    expect(resolved.diagnostics['selectedExportFormat'], 'csv');
+    expect(
+      client.requests,
+      isNot(contains(
+          'https://opendata.camden.gov.uk/dataset/Westminster-Parking-Spaces/2579-98vt')),
+    );
+  });
 }
 
 class _FakeFetchClient implements AieFetchClient {

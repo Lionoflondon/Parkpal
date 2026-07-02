@@ -1511,7 +1511,12 @@ class AieImportEngine {
       diagnostics['metadataPreview'] = _preview(metadataResponse.body);
     }
 
-    final mismatch = _authorityMismatch(sourceAuthority, authority, host);
+    final mismatch = _authorityMismatch(
+      sourceAuthority,
+      authority,
+      host,
+      inputUri.path,
+    );
     if (mismatch != null) {
       return _AieSourcePreflight(
         valid: false,
@@ -1545,7 +1550,8 @@ class AieImportEngine {
       ..['selectedExportFormat'] = _exportFormatForDocumentType(selected)
       ..['availableExportFormats'] =
           orderedAvailable.map(_exportFormatForDocumentType).join(', ')
-      ..['constructedUrl'] = fetchUri.toString();
+      ..['constructedUrl'] = fetchUri.toString()
+      ..['resolvedEndpoint'] = fetchUri.toString();
     if (selected != source.documentType) {
       messages.add(
         'Configured ${source.documentType.name.toUpperCase()} export is not preferred/available; selected ${selected.name.toUpperCase()} automatically.',
@@ -1577,6 +1583,7 @@ class AieImportEngine {
           ...current.diagnostics,
           'selectedExportFormat': format,
           'constructedUrl': fallbackUri.toString(),
+          'resolvedEndpoint': fallbackUri.toString(),
         },
       );
     }
@@ -1599,6 +1606,14 @@ class AieImportEngine {
     final resourceIndex = segments.indexOf('resource');
     if (resourceIndex >= 0 && resourceIndex + 1 < segments.length) {
       return segments[resourceIndex + 1].split('.').first;
+    }
+    final datasetIndex = segments.indexOf('dataset');
+    if (datasetIndex >= 0 && segments.length > datasetIndex + 1) {
+      final id = segments.reversed.firstWhere(
+        _looksLikeSocrataDatasetId,
+        orElse: () => '',
+      );
+      if (id.isNotEmpty) return id;
     }
     return null;
   }
@@ -1734,11 +1749,18 @@ class AieImportEngine {
     String configuredAuthority,
     String detectedAuthority,
     String host,
+    String path,
   ) {
     final detected = _authorityFromCouncil(detectedAuthority);
     if (configuredAuthority == detected) return null;
     if (host.toLowerCase().contains(configuredAuthority)) return null;
+    if (path.toLowerCase().contains(configuredAuthority)) return null;
     return 'Configuration error: selected council may not match source dataset. Configured $configuredAuthority but source appears to be $detected.';
+  }
+
+  bool _looksLikeSocrataDatasetId(String value) {
+    return RegExp(r'^[a-z0-9]{4}-[a-z0-9]{4}$', caseSensitive: false)
+        .hasMatch(value);
   }
 
   String _exportFormatForDocumentType(AieDocumentType documentType) {
