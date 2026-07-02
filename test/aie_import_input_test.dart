@@ -77,7 +77,32 @@ void main() {
 
     expect(resolved.success, isFalse);
     expect(resolved.messages.join(' '), contains('Empty response'));
+    expect(resolved.diagnostics['failureStage'], 'validation');
     expect(resolved.diagnostics['failureLabel'], 'Empty response');
+  });
+
+  test('missing source URL records url build failure stage', () async {
+    const missingUrlSource = AieSource(
+      sourceId: 'westminster_missing_url',
+      sourceUrl: '',
+      council: 'Westminster City Council',
+      sourceType: AieSourceType.openDataApi,
+      documentType: AieDocumentType.csv,
+      importStatus: AieImportStatus.idle,
+      version: 0,
+      confidence: 1,
+      enabled: true,
+    );
+    final engine = AieImportEngine(fetchClient: _FakeFetchClient());
+    final resolved = await engine.resolveImportInput(
+      source: missingUrlSource,
+      input: '   ',
+    );
+
+    expect(resolved.success, isFalse);
+    expect(resolved.diagnostics['failureStage'], 'url_build');
+    expect(resolved.diagnostics['failureLabel'], 'Missing source URL');
+    expect(resolved.diagnostics['originalSourceUrl'], '');
   });
 
   test('unreachable URL fails clearly', () async {
@@ -89,7 +114,9 @@ void main() {
 
     expect(resolved.success, isFalse);
     expect(resolved.messages, contains('URL unreachable.'));
+    expect(resolved.diagnostics['failureStage'], 'http_fetch');
     expect(resolved.diagnostics['failureLabel'], 'URL unreachable');
+    expect(resolved.diagnostics['exceptionType'], isNull);
   });
 
   test('HTTP status failure records diagnostics', () async {
@@ -110,6 +137,7 @@ void main() {
 
     expect(resolved.success, isFalse);
     expect(resolved.messages, contains('HTTP 403.'));
+    expect(resolved.diagnostics['failureStage'], 'http_fetch');
     expect(resolved.diagnostics['failureLabel'], 'HTTP 403');
     expect(resolved.diagnostics['httpStatus'], 403);
     expect(resolved.diagnostics['responsePreview'], contains('Forbidden'));
@@ -133,6 +161,7 @@ void main() {
 
     expect(resolved.success, isTrue);
     expect(resolved.messages, contains('Returned HTML not CSV.'));
+    expect(resolved.diagnostics['failureStage'], 'parser_selection');
     expect(resolved.diagnostics['failureLabel'], 'Returned HTML not CSV');
     expect(resolved.diagnostics['parserError'], 'Returned HTML not CSV.');
   });

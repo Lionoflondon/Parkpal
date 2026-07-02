@@ -26,7 +26,10 @@ class AieImportEngine {
     String requestedBy = 'ParkPal Admin',
   }) async {
     final batchId = 'aie_${DateTime.now().toUtc().millisecondsSinceEpoch}';
-    final resolved = await resolveImportInput(source: source, input: rawData);
+    var resolved = await _resolveImportInputSafely(
+      source: source,
+      input: rawData,
+    );
     final checksum = resolved.checksum;
     final messages = <String>[];
     var imported = 0;
@@ -102,7 +105,53 @@ class AieImportEngine {
         );
       }
 
-      final existingSource = await sourceRef.get();
+      DocumentSnapshot<Map<String, dynamic>> existingSource;
+      try {
+        existingSource = await sourceRef.get();
+      } catch (error, stackTrace) {
+        failed++;
+        final diagnostics = {
+          ...resolved.diagnostics,
+          ..._exceptionDiagnostics(
+            source: source,
+            input: rawData,
+            failureStage: 'source_lookup',
+            error: error,
+            stackTrace: stackTrace,
+            constructedUrl: resolved.fetchUrl,
+          ),
+        };
+        messages.add('Source lookup failed: $error');
+        await _writeImportLogSafely(
+          firestore,
+          batchId: batchId,
+          source: source,
+          status: AieImportStatus.failed,
+          checksum: checksum,
+          imported: imported,
+          changed: changed,
+          skipped: skipped,
+          failed: failed,
+          conflicts: conflicts,
+          missions: missions,
+          messages: messages,
+          fetchUrl: resolved.fetchUrl,
+          contentType: resolved.contentType,
+          fetchedAt: resolved.fetchedAt,
+          diagnostics: diagnostics,
+        );
+        return AieImportResult(
+          batchId: batchId,
+          imported: imported,
+          changed: changed,
+          skipped: skipped,
+          failed: failed,
+          conflicts: conflicts,
+          missionsCreated: missions,
+          status: AieImportStatus.failed,
+          messages: messages,
+        );
+      }
       final previousChecksum = existingSource.data()?['checksum'] as String?;
 
       await _audit(firestore, 'import_started', {
@@ -199,16 +248,66 @@ class AieImportEngine {
         );
       }
 
-      final restrictions = _parser.parse(
-        source: source,
-        rawData: resolved.body,
-      );
+      List<AieStructuredRestriction> restrictions;
+      try {
+        restrictions = _parser.parse(
+          source: source,
+          rawData: resolved.body,
+        );
+      } catch (error, stackTrace) {
+        failed++;
+        final diagnostics = {
+          ...resolved.diagnostics,
+          ..._exceptionDiagnostics(
+            source: source,
+            input: rawData,
+            failureStage: 'parser_execution',
+            error: error,
+            stackTrace: stackTrace,
+            constructedUrl: resolved.fetchUrl,
+          ),
+          'failureLabel': 'Parser failed',
+          'parserError': error.toString(),
+        };
+        messages.add('Parser failed: $error');
+        await _deadLetter(firestore, batchId, source, error.toString());
+        await _writeImportLogSafely(
+          firestore,
+          batchId: batchId,
+          source: source,
+          status: AieImportStatus.failed,
+          checksum: checksum,
+          imported: imported,
+          changed: changed,
+          skipped: skipped,
+          failed: failed,
+          conflicts: conflicts,
+          missions: missions,
+          messages: messages,
+          fetchUrl: resolved.fetchUrl,
+          contentType: resolved.contentType,
+          fetchedAt: resolved.fetchedAt,
+          diagnostics: diagnostics,
+        );
+        return AieImportResult(
+          batchId: batchId,
+          imported: imported,
+          changed: changed,
+          skipped: skipped,
+          failed: failed,
+          conflicts: conflicts,
+          missionsCreated: missions,
+          status: AieImportStatus.failed,
+          messages: messages,
+        );
+      }
       if (restrictions.isEmpty) {
         failed++;
         final reason = _parserFailureMessage(source.documentType);
         messages.add(reason);
         resolved.diagnostics['parserError'] = reason;
         resolved.diagnostics['failureLabel'] = _failureLabelForReason(reason);
+        resolved.diagnostics['failureStage'] = 'parser_execution';
         await _deadLetter(firestore, batchId, source, reason);
       }
 
@@ -329,9 +428,17 @@ class AieImportEngine {
               missionType: _missionFor(changeType),
             );
           }
-        } catch (error) {
+        } catch (error, stackTrace) {
           failed++;
           messages.add('Failed ${restriction.ruleId}: $error');
+          resolved.diagnostics.addAll(_exceptionDiagnostics(
+            source: source,
+            input: rawData,
+            failureStage: 'persistence',
+            error: error,
+            stackTrace: stackTrace,
+            constructedUrl: resolved.fetchUrl,
+          ));
           await _deadLetter(firestore, batchId, source, error.toString());
         }
       }
@@ -400,7 +507,39 @@ class AieImportEngine {
         status: status,
         messages: messages,
       );
-    } catch (error) {
+    } catch (error, stackTrace) {
+      final firestore = await _safeFirestore();
+      final diagnostics = {
+        ...resolved.diagnostics,
+        ..._exceptionDiagnostics(
+          source: source,
+          input: rawData,
+          failureStage: 'unknown',
+          error: error,
+          stackTrace: stackTrace,
+          constructedUrl: resolved.fetchUrl,
+        ),
+      };
+      if (firestore != null) {
+        await _writeImportLogSafely(
+          firestore,
+          batchId: batchId,
+          source: source,
+          status: AieImportStatus.failed,
+          checksum: checksum,
+          imported: imported,
+          changed: changed,
+          skipped: skipped,
+          failed: failed + 1,
+          conflicts: conflicts,
+          missions: missions,
+          messages: [...messages, 'Import failed: $error'],
+          fetchUrl: resolved.fetchUrl,
+          contentType: resolved.contentType,
+          fetchedAt: resolved.fetchedAt,
+          diagnostics: diagnostics,
+        );
+      }
       return AieImportResult(
         batchId: batchId,
         imported: imported,
@@ -415,20 +554,64 @@ class AieImportEngine {
     }
   }
 
+  Future<AieResolvedImportInput> _resolveImportInputSafely({
+    required AieSource source,
+    required String input,
+  }) async {
+    try {
+      return await resolveImportInput(source: source, input: input);
+    } catch (error, stackTrace) {
+      return AieResolvedImportInput.failure(
+        checksum: _checksum(input),
+        messages: ['Import validation failed before fetch: $error'],
+        diagnostics: _exceptionDiagnostics(
+          source: source,
+          input: input,
+          failureStage: 'validation',
+          error: error,
+          stackTrace: stackTrace,
+          constructedUrl: input.trim().startsWith('http')
+              ? input.trim()
+              : source.sourceUrl.trim(),
+        ),
+      );
+    }
+  }
+
   Future<AieResolvedImportInput> resolveImportInput({
     required AieSource source,
     required String input,
   }) async {
     final trimmed = input.trim();
+    final sourceUrl = source.sourceUrl.trim();
+    final baseDiagnostics = _baseDiagnostics(
+      source: source,
+      input: input,
+      constructedUrl: trimmed.startsWith('http') ? trimmed : sourceUrl,
+    );
+    if (sourceUrl.isEmpty && trimmed.isEmpty) {
+      return AieResolvedImportInput.failure(
+        checksum: _checksum(''),
+        messages: const ['Missing source URL.'],
+        diagnostics: {
+          ...baseDiagnostics,
+          'failureStage': 'url_build',
+          'failureLabel': 'Missing source URL',
+          'selectedParser': source.documentType.name,
+          'responseSize': 0,
+        },
+      );
+    }
     if (trimmed.isEmpty) {
       return AieResolvedImportInput.failure(
         checksum: _checksum(''),
         messages: const ['Empty response: paste data or a download URL.'],
         diagnostics: {
+          ...baseDiagnostics,
+          'failureStage': 'validation',
           'failureLabel': 'Empty response',
           'selectedParser': source.documentType.name,
           'responseSize': 0,
-          'diagnosticsTimestamp': DateTime.now().toUtc().toIso8601String(),
         },
       );
     }
@@ -445,11 +628,11 @@ class AieImportEngine {
         checksum: _checksum(trimmed),
         messages: warnings,
         diagnostics: {
+          ...baseDiagnostics,
           'inputMode': 'raw',
           'selectedParser': source.documentType.name,
           'responseSize': trimmed.length,
           'responsePreview': _preview(trimmed),
-          'diagnosticsTimestamp': DateTime.now().toUtc().toIso8601String(),
         },
       );
     }
@@ -462,11 +645,13 @@ class AieImportEngine {
           fetchUrl: inputUri.toString(),
           messages: const ['URL unreachable.'],
           diagnostics: {
+            ...baseDiagnostics,
+            'failureStage': 'http_fetch',
             'failureLabel': 'URL unreachable',
             'fetchUrl': inputUri.toString(),
+            'constructedUrl': inputUri.toString(),
             'selectedParser': source.documentType.name,
             'responseSize': 0,
-            'diagnosticsTimestamp': DateTime.now().toUtc().toIso8601String(),
           },
         );
       }
@@ -477,15 +662,17 @@ class AieImportEngine {
           contentType: response.contentType,
           messages: ['HTTP ${response.statusCode}.'],
           diagnostics: {
+            ...baseDiagnostics,
+            'failureStage': 'http_fetch',
             'failureLabel': 'HTTP ${response.statusCode}',
             'fetchUrl': inputUri.toString(),
+            'constructedUrl': inputUri.toString(),
             'finalUrl': response.finalUrl ?? inputUri.toString(),
             'httpStatus': response.statusCode,
             'contentType': response.contentType,
             'selectedParser': source.documentType.name,
             'responseSize': response.body.length,
             'responsePreview': _preview(response.body),
-            'diagnosticsTimestamp': DateTime.now().toUtc().toIso8601String(),
           },
         );
       }
@@ -496,14 +683,16 @@ class AieImportEngine {
           contentType: response.contentType,
           messages: const ['Empty response.'],
           diagnostics: {
+            ...baseDiagnostics,
+            'failureStage': 'validation',
             'failureLabel': 'Empty response',
             'fetchUrl': inputUri.toString(),
+            'constructedUrl': inputUri.toString(),
             'finalUrl': response.finalUrl ?? inputUri.toString(),
             'httpStatus': response.statusCode,
             'contentType': response.contentType,
             'selectedParser': source.documentType.name,
             'responseSize': 0,
-            'diagnosticsTimestamp': DateTime.now().toUtc().toIso8601String(),
           },
         );
       }
@@ -526,31 +715,42 @@ class AieImportEngine {
         fetchedAt: DateTime.now().toUtc(),
         messages: messages,
         diagnostics: {
+          ...baseDiagnostics,
           'inputMode': 'url',
           'fetchUrl': inputUri.toString(),
+          'constructedUrl': inputUri.toString(),
           'finalUrl': response.finalUrl ?? inputUri.toString(),
           'httpStatus': response.statusCode,
           'contentType': contentType,
           'selectedParser': source.documentType.name,
           'responseSize': response.body.length,
           'responsePreview': _preview(response.body),
+          if (htmlCsvMismatch) 'failureStage': 'parser_selection',
           if (htmlCsvMismatch) 'failureLabel': 'Returned HTML not CSV',
           if (htmlCsvMismatch) 'parserError': 'Returned HTML not CSV.',
-          'diagnosticsTimestamp': DateTime.now().toUtc().toIso8601String(),
         },
       );
-    } catch (error) {
+    } catch (error, stackTrace) {
       return AieResolvedImportInput.failure(
         checksum: _checksum(trimmed),
         fetchUrl: inputUri.toString(),
         messages: ['URL unreachable: $error'],
         diagnostics: {
+          ...baseDiagnostics,
+          ..._exceptionDiagnostics(
+            source: source,
+            input: input,
+            failureStage: 'http_fetch',
+            error: error,
+            stackTrace: stackTrace,
+            constructedUrl: inputUri.toString(),
+          ),
           'failureLabel': 'URL unreachable',
           'fetchUrl': inputUri.toString(),
+          'constructedUrl': inputUri.toString(),
           'selectedParser': source.documentType.name,
           'parserError': error.toString(),
           'responseSize': 0,
-          'diagnosticsTimestamp': DateTime.now().toUtc().toIso8601String(),
         },
       );
     }
@@ -859,6 +1059,48 @@ class AieImportEngine {
     });
   }
 
+  Future<void> _writeImportLogSafely(
+    FirebaseFirestore firestore, {
+    required String batchId,
+    required AieSource source,
+    required AieImportStatus status,
+    required String checksum,
+    required int imported,
+    required int changed,
+    required int skipped,
+    required int failed,
+    required int conflicts,
+    required int missions,
+    required List<String> messages,
+    String? fetchUrl,
+    String? contentType,
+    DateTime? fetchedAt,
+    Map<String, Object?> diagnostics = const {},
+  }) async {
+    try {
+      await _writeImportLog(
+        firestore,
+        batchId: batchId,
+        source: source,
+        status: status,
+        checksum: checksum,
+        imported: imported,
+        changed: changed,
+        skipped: skipped,
+        failed: failed,
+        conflicts: conflicts,
+        missions: missions,
+        messages: messages,
+        fetchUrl: fetchUrl,
+        contentType: contentType,
+        fetchedAt: fetchedAt,
+        diagnostics: diagnostics,
+      );
+    } catch (_) {
+      // Diagnostics must never crash the Admin import flow.
+    }
+  }
+
   Future<void> _deadLetter(
     FirebaseFirestore firestore,
     String batchId,
@@ -1092,6 +1334,44 @@ class AieImportEngine {
     final cleaned = value.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (cleaned.length <= 300) return cleaned;
     return cleaned.substring(0, 300);
+  }
+
+  Map<String, Object?> _baseDiagnostics({
+    required AieSource source,
+    required String input,
+    String? constructedUrl,
+  }) {
+    return {
+      'sourceId': source.sourceId,
+      'sourceName': source.sourceName ?? source.sourceId,
+      'originalSourceUrl': source.sourceUrl,
+      'constructedUrl': constructedUrl,
+      'selectedParser': source.documentType.name,
+      'diagnosticsTimestamp': DateTime.now().toUtc().toIso8601String(),
+      'inputSize': input.length,
+    };
+  }
+
+  Map<String, Object?> _exceptionDiagnostics({
+    required AieSource source,
+    required String input,
+    required String failureStage,
+    required Object error,
+    required StackTrace stackTrace,
+    String? constructedUrl,
+  }) {
+    return {
+      ..._baseDiagnostics(
+        source: source,
+        input: input,
+        constructedUrl: constructedUrl,
+      ),
+      'failureStage': failureStage,
+      'exceptionType': error.runtimeType.toString(),
+      'exceptionMessage': error.toString(),
+      'stackTrace':
+          stackTrace.toString().split('\n').take(20).join('\n').trim(),
+    };
   }
 }
 

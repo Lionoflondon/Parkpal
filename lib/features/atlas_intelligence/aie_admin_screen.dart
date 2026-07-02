@@ -420,8 +420,11 @@ class _TwoColumnLists extends StatelessWidget {
             .join(' • ') ??
         '';
     final fetchUrl = log['fetchUrl']?.toString();
+    final failureStage = diagnostics['failureStage']?.toString();
     final failureLabel = diagnostics['failureLabel']?.toString();
     return [
+      if (failureStage != null && failureStage.isNotEmpty)
+        'stage: $failureStage',
       failureLabel ?? '${log['status'] ?? 'unknown'}',
       'imported ${log['imported'] ?? 0}',
       'failed ${log['failed'] ?? 0}',
@@ -643,7 +646,13 @@ class _ImportDetailsDialog extends StatelessWidget {
                 ),
                 const SizedBox(height: 18),
                 _DetailsGrid(items: {
+                  'Failure stage': diagnostics['failureStage'],
                   'Failure label': diagnostics['failureLabel'],
+                  'Source ID': diagnostics['sourceId'] ?? log['sourceId'],
+                  'Source name': diagnostics['sourceName'],
+                  'Original source URL':
+                      diagnostics['originalSourceUrl'] ?? log['sourceUrl'],
+                  'Constructed URL': diagnostics['constructedUrl'],
                   'Fetched URL': log['fetchUrl'] ?? diagnostics['fetchUrl'],
                   'HTTP status': diagnostics['httpStatus'],
                   'Final redirected URL': diagnostics['finalUrl'],
@@ -652,9 +661,33 @@ class _ImportDetailsDialog extends StatelessWidget {
                   'Response size': diagnostics['responseSize'],
                   'Selected parser': diagnostics['selectedParser'],
                   'Parser error': diagnostics['parserError'],
+                  'Exception type': diagnostics['exceptionType'],
+                  'Exception message': diagnostics['exceptionMessage'],
                   'Timestamp':
                       diagnostics['diagnosticsTimestamp'] ?? log['createdAt'],
                 }),
+                if (diagnostics['stackTrace'] != null) ...[
+                  const SizedBox(height: 18),
+                  Text('Stack trace',
+                      style: adminBody(weight: FontWeight.w800)),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: ParkPalAdminColors.glassBorder),
+                    ),
+                    child: Text(
+                      diagnostics['stackTrace'].toString(),
+                      style: adminBody(
+                        color: ParkPalAdminColors.muted,
+                        size: 12,
+                      ),
+                    ),
+                  ),
+                ],
                 if (messages.isNotEmpty) ...[
                   const SizedBox(height: 18),
                   Text('Messages', style: adminBody(weight: FontWeight.w800)),
