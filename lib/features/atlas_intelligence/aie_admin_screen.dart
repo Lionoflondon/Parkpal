@@ -653,6 +653,12 @@ class _ImportDetailsDialog extends StatelessWidget {
                   'Original source URL':
                       diagnostics['originalSourceUrl'] ?? log['sourceUrl'],
                   'Constructed URL': diagnostics['constructedUrl'],
+                  'Authority': diagnostics['authority'],
+                  'Dataset ID': diagnostics['datasetId'],
+                  'Host': diagnostics['host'],
+                  'Selected export format': diagnostics['selectedExportFormat'],
+                  'Available export formats':
+                      diagnostics['availableExportFormats'],
                   'Fetched URL': log['fetchUrl'] ?? diagnostics['fetchUrl'],
                   'HTTP status': diagnostics['httpStatus'],
                   'Final redirected URL': diagnostics['finalUrl'],

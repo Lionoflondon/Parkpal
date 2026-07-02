@@ -15,6 +15,18 @@ void main() {
     confidence: 1,
     enabled: true,
   );
+  const camdenSource = AieSource(
+    sourceId: 'camden_csv',
+    sourceUrl:
+        'https://opendata.camden.gov.uk/api/v3/views/2579-98vt/export.xml?accessType=DOWNLOAD',
+    council: 'Camden Council',
+    sourceType: AieSourceType.openDataApi,
+    documentType: AieDocumentType.xml,
+    importStatus: AieImportStatus.idle,
+    version: 0,
+    confidence: 1,
+    enabled: true,
+  );
 
   test('raw CSV import input is accepted and parsed', () async {
     final engine = AieImportEngine(fetchClient: _FakeFetchClient());
@@ -220,15 +232,83 @@ void main() {
       contains('Selected council may not match source dataset.'),
     );
   });
+
+  test('configured authority mismatch fails before export fetch', () async {
+    final client = _FakeFetchClient({
+      'https://opendata.camden.gov.uk/api/views/2579-98vt.json':
+          const AieFetchResponse(
+        statusCode: 200,
+        contentType: 'application/json',
+        finalUrl: 'https://opendata.camden.gov.uk/api/views/2579-98vt.json',
+        body:
+            '{"authority":"Camden Council","availableExportFormats":["csv","json","geojson"]}',
+      ),
+    });
+    final engine = AieImportEngine(fetchClient: client);
+    final resolved = await engine.resolveImportInput(
+      source: westminsterSource,
+      input:
+          'https://opendata.camden.gov.uk/api/v3/views/2579-98vt/export.xml?accessType=DOWNLOAD',
+    );
+
+    expect(resolved.success, isFalse);
+    expect(resolved.diagnostics['failureStage'], 'validation');
+    expect(resolved.diagnostics['failureLabel'], 'Configuration error');
+    expect(resolved.diagnostics['authority'], 'Camden Council');
+    expect(resolved.diagnostics['datasetId'], '2579-98vt');
+    expect(client.requests, isNot(contains(contains('export.'))));
+  });
+
+  test('Socrata XML export URL auto-selects supported CSV format', () async {
+    final client = _FakeFetchClient({
+      'https://opendata.camden.gov.uk/api/views/2579-98vt.json':
+          const AieFetchResponse(
+        statusCode: 200,
+        contentType: 'application/json',
+        finalUrl: 'https://opendata.camden.gov.uk/api/views/2579-98vt.json',
+        body:
+            '{"authority":"Camden Council","availableExportFormats":["csv","json","geojson"]}',
+      ),
+      'https://opendata.camden.gov.uk/api/v3/views/2579-98vt/export.csv?accessType=DOWNLOAD':
+          const AieFetchResponse(
+        statusCode: 200,
+        contentType: 'text/csv',
+        finalUrl:
+            'https://opendata.camden.gov.uk/api/v3/views/2579-98vt/export.csv?accessType=DOWNLOAD',
+        body:
+            'roadName,restrictionType,activeHours\nCamden High Street,Permit Parking,08:30-18:30',
+      ),
+    });
+    final engine = AieImportEngine(fetchClient: client);
+    final resolved = await engine.resolveImportInput(
+      source: camdenSource,
+      input:
+          'https://opendata.camden.gov.uk/api/v3/views/2579-98vt/export.xml?accessType=DOWNLOAD',
+    );
+
+    expect(resolved.success, isTrue);
+    expect(resolved.documentType, AieDocumentType.csv);
+    expect(resolved.fetchUrl, contains('export.csv'));
+    expect(resolved.diagnostics['selectedExportFormat'], 'csv');
+    expect(resolved.diagnostics['availableExportFormats'], contains('csv'));
+    expect(resolved.diagnostics['datasetId'], '2579-98vt');
+    expect(
+      client.requests,
+      contains(
+          'https://opendata.camden.gov.uk/api/v3/views/2579-98vt/export.csv?accessType=DOWNLOAD'),
+    );
+  });
 }
 
 class _FakeFetchClient implements AieFetchClient {
   _FakeFetchClient([this.responses = const {}]);
 
   final Map<String, AieFetchResponse> responses;
+  final List<String> requests = [];
 
   @override
   Future<AieFetchResponse> get(Uri uri) async {
+    requests.add(uri.toString());
     return responses[uri.toString()] ?? const AieFetchResponse.unreachable();
   }
 }

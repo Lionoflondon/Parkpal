@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:http/http.dart' as http;
@@ -248,10 +250,15 @@ class AieImportEngine {
         );
       }
 
+      final parserSource = _sourceWithDocumentType(
+        source,
+        resolved.documentType,
+        resolved.fetchUrl ?? source.sourceUrl,
+      );
       List<AieStructuredRestriction> restrictions;
       try {
         restrictions = _parser.parse(
-          source: source,
+          source: parserSource,
           rawData: resolved.body,
         );
       } catch (error, stackTrace) {
@@ -303,7 +310,7 @@ class AieImportEngine {
       }
       if (restrictions.isEmpty) {
         failed++;
-        final reason = _parserFailureMessage(source.documentType);
+        final reason = _parserFailureMessage(resolved.documentType);
         messages.add(reason);
         resolved.diagnostics['parserError'] = reason;
         resolved.diagnostics['failureLabel'] = _failureLabelForReason(reason);
@@ -564,6 +571,7 @@ class AieImportEngine {
       return AieResolvedImportInput.failure(
         checksum: _checksum(input),
         messages: ['Import validation failed before fetch: $error'],
+        documentType: source.documentType,
         diagnostics: _exceptionDiagnostics(
           source: source,
           input: input,
@@ -593,6 +601,7 @@ class AieImportEngine {
       return AieResolvedImportInput.failure(
         checksum: _checksum(''),
         messages: const ['Missing source URL.'],
+        documentType: source.documentType,
         diagnostics: {
           ...baseDiagnostics,
           'failureStage': 'url_build',
@@ -606,6 +615,7 @@ class AieImportEngine {
       return AieResolvedImportInput.failure(
         checksum: _checksum(''),
         messages: const ['Empty response: paste data or a download URL.'],
+        documentType: source.documentType,
         diagnostics: {
           ...baseDiagnostics,
           'failureStage': 'validation',
@@ -627,6 +637,7 @@ class AieImportEngine {
         body: trimmed,
         checksum: _checksum(trimmed),
         messages: warnings,
+        documentType: source.documentType,
         diagnostics: {
           ...baseDiagnostics,
           'inputMode': 'raw',
@@ -638,19 +649,57 @@ class AieImportEngine {
     }
 
     try {
-      final response = await _fetchClient.get(inputUri);
+      final preflight = await _preflightSource(source, inputUri);
+      var preflightDiagnostics = {
+        ...baseDiagnostics,
+        ...preflight.diagnostics,
+      };
+      if (!preflight.valid) {
+        return AieResolvedImportInput.failure(
+          checksum: _checksum(trimmed),
+          fetchUrl: preflight.fetchUri.toString(),
+          messages: preflight.messages,
+          documentType: preflight.selectedDocumentType,
+          diagnostics: {
+            ...preflightDiagnostics,
+            'failureStage': 'validation',
+            'failureLabel': 'Configuration error',
+          },
+        );
+      }
+      var response = await _fetchClient.get(preflight.fetchUri);
+      var selectedDocumentType = preflight.selectedDocumentType;
+      var selectedFormat = _exportFormatForDocumentType(selectedDocumentType);
+      if (response.statusCode != 200 &&
+          _isUnavailableExportResponse(response)) {
+        final fallback = _nextFallbackPreflight(preflight);
+        if (fallback != null) {
+          response = await _fetchClient.get(fallback.fetchUri);
+          selectedDocumentType = fallback.selectedDocumentType;
+          selectedFormat = _exportFormatForDocumentType(selectedDocumentType);
+          preflight.messages.add(
+            'Selected export format was unavailable; retried as $selectedFormat.',
+          );
+          preflight.diagnostics.addAll(fallback.diagnostics);
+          preflightDiagnostics = {
+            ...baseDiagnostics,
+            ...preflight.diagnostics,
+          };
+        }
+      }
       if (response.unreachable) {
         return AieResolvedImportInput.failure(
           checksum: _checksum(trimmed),
-          fetchUrl: inputUri.toString(),
+          fetchUrl: preflight.fetchUri.toString(),
           messages: const ['URL unreachable.'],
+          documentType: selectedDocumentType,
           diagnostics: {
-            ...baseDiagnostics,
+            ...preflightDiagnostics,
             'failureStage': 'http_fetch',
             'failureLabel': 'URL unreachable',
-            'fetchUrl': inputUri.toString(),
-            'constructedUrl': inputUri.toString(),
-            'selectedParser': source.documentType.name,
+            'fetchUrl': preflight.fetchUri.toString(),
+            'constructedUrl': preflight.fetchUri.toString(),
+            'selectedParser': selectedDocumentType.name,
             'responseSize': 0,
           },
         );
@@ -658,19 +707,20 @@ class AieImportEngine {
       if (response.statusCode != 200) {
         return AieResolvedImportInput.failure(
           checksum: _checksum(trimmed),
-          fetchUrl: response.finalUrl ?? inputUri.toString(),
+          fetchUrl: response.finalUrl ?? preflight.fetchUri.toString(),
           contentType: response.contentType,
           messages: ['HTTP ${response.statusCode}.'],
+          documentType: selectedDocumentType,
           diagnostics: {
-            ...baseDiagnostics,
+            ...preflightDiagnostics,
             'failureStage': 'http_fetch',
             'failureLabel': 'HTTP ${response.statusCode}',
-            'fetchUrl': inputUri.toString(),
-            'constructedUrl': inputUri.toString(),
-            'finalUrl': response.finalUrl ?? inputUri.toString(),
+            'fetchUrl': preflight.fetchUri.toString(),
+            'constructedUrl': preflight.fetchUri.toString(),
+            'finalUrl': response.finalUrl ?? preflight.fetchUri.toString(),
             'httpStatus': response.statusCode,
             'contentType': response.contentType,
-            'selectedParser': source.documentType.name,
+            'selectedParser': selectedDocumentType.name,
             'responseSize': response.body.length,
             'responsePreview': _preview(response.body),
           },
@@ -679,19 +729,20 @@ class AieImportEngine {
       if (response.body.trim().isEmpty) {
         return AieResolvedImportInput.failure(
           checksum: _checksum(''),
-          fetchUrl: response.finalUrl ?? inputUri.toString(),
+          fetchUrl: response.finalUrl ?? preflight.fetchUri.toString(),
           contentType: response.contentType,
           messages: const ['Empty response.'],
+          documentType: selectedDocumentType,
           diagnostics: {
-            ...baseDiagnostics,
+            ...preflightDiagnostics,
             'failureStage': 'validation',
             'failureLabel': 'Empty response',
-            'fetchUrl': inputUri.toString(),
-            'constructedUrl': inputUri.toString(),
-            'finalUrl': response.finalUrl ?? inputUri.toString(),
+            'fetchUrl': preflight.fetchUri.toString(),
+            'constructedUrl': preflight.fetchUri.toString(),
+            'finalUrl': response.finalUrl ?? preflight.fetchUri.toString(),
             'httpStatus': response.statusCode,
             'contentType': response.contentType,
-            'selectedParser': source.documentType.name,
+            'selectedParser': selectedDocumentType.name,
             'responseSize': 0,
           },
         );
@@ -699,30 +750,36 @@ class AieImportEngine {
 
       final contentType = response.contentType;
       final messages = [
+        ...preflight.messages,
         'Fetched official download URL.',
-        ..._hardContentTypeFailures(source.documentType, contentType),
-        ..._contentTypeWarnings(source.documentType, contentType),
+        ..._hardContentTypeFailures(selectedDocumentType, contentType),
+        ..._contentTypeWarnings(selectedDocumentType, contentType),
         ..._councilWarnings(
-            source, response.body, response.finalUrl ?? trimmed),
+          source,
+          response.body,
+          response.finalUrl ?? preflight.fetchUri.toString(),
+        ),
       ];
-      final htmlCsvMismatch =
-          source.documentType == AieDocumentType.csv && _looksHtml(contentType);
+      final htmlCsvMismatch = selectedDocumentType == AieDocumentType.csv &&
+          _looksHtml(contentType);
       return AieResolvedImportInput.success(
         body: response.body,
         checksum: _checksum(response.body),
-        fetchUrl: response.finalUrl ?? inputUri.toString(),
+        fetchUrl: response.finalUrl ?? preflight.fetchUri.toString(),
         contentType: contentType,
         fetchedAt: DateTime.now().toUtc(),
         messages: messages,
+        documentType: selectedDocumentType,
         diagnostics: {
-          ...baseDiagnostics,
+          ...preflightDiagnostics,
           'inputMode': 'url',
-          'fetchUrl': inputUri.toString(),
-          'constructedUrl': inputUri.toString(),
-          'finalUrl': response.finalUrl ?? inputUri.toString(),
+          'fetchUrl': preflight.fetchUri.toString(),
+          'constructedUrl': preflight.fetchUri.toString(),
+          'finalUrl': response.finalUrl ?? preflight.fetchUri.toString(),
           'httpStatus': response.statusCode,
           'contentType': contentType,
-          'selectedParser': source.documentType.name,
+          'selectedParser': selectedDocumentType.name,
+          'selectedExportFormat': selectedFormat,
           'responseSize': response.body.length,
           'responsePreview': _preview(response.body),
           if (htmlCsvMismatch) 'failureStage': 'parser_selection',
@@ -735,6 +792,7 @@ class AieImportEngine {
         checksum: _checksum(trimmed),
         fetchUrl: inputUri.toString(),
         messages: ['URL unreachable: $error'],
+        documentType: source.documentType,
         diagnostics: {
           ...baseDiagnostics,
           ..._exceptionDiagnostics(
@@ -1373,6 +1431,339 @@ class AieImportEngine {
           stackTrace.toString().split('\n').take(20).join('\n').trim(),
     };
   }
+
+  AieSource _sourceWithDocumentType(
+    AieSource source,
+    AieDocumentType documentType,
+    String sourceUrl,
+  ) {
+    return AieSource(
+      sourceId: source.sourceId,
+      sourceName: source.sourceName,
+      sourceUrl: sourceUrl,
+      council: source.council,
+      sourceType: source.sourceType,
+      documentType: documentType,
+      lastSuccessfulImport: source.lastSuccessfulImport,
+      lastFailedImport: source.lastFailedImport,
+      nextScheduledCheck: source.nextScheduledCheck,
+      importStatus: source.importStatus,
+      checksum: source.checksum,
+      version: source.version,
+      confidence: source.confidence,
+      enabled: source.enabled,
+    );
+  }
+
+  Future<_AieSourcePreflight> _preflightSource(
+    AieSource source,
+    Uri inputUri,
+  ) async {
+    final datasetId = _datasetIdFromUri(inputUri);
+    final host = inputUri.host;
+    final sourceAuthority = _authorityFromCouncil(source.council);
+    var authority = _authorityFromHost(host);
+    final messages = <String>[];
+    final diagnostics = <String, Object?>{
+      'authority': authority,
+      'datasetId': datasetId,
+      'host': host,
+    };
+
+    if (datasetId == null) {
+      final documentType = source.documentType;
+      return _AieSourcePreflight(
+        valid: true,
+        fetchUri: inputUri,
+        selectedDocumentType: documentType,
+        availableDocumentTypes: [documentType],
+        messages: messages,
+        diagnostics: {
+          ...diagnostics,
+          'selectedExportFormat': _exportFormatForDocumentType(documentType),
+          'availableExportFormats': _exportFormatForDocumentType(documentType),
+        },
+      );
+    }
+
+    final metadataUri = Uri(
+      scheme: inputUri.scheme,
+      host: host,
+      path: '/api/views/$datasetId.json',
+    );
+    diagnostics['metadataUrl'] = metadataUri.toString();
+    final metadataResponse = await _fetchClient.get(metadataUri);
+    if (!metadataResponse.unreachable && metadataResponse.statusCode == 200) {
+      final metadata = _decodeJsonMap(metadataResponse.body);
+      authority = _authorityFromMetadata(metadata) ?? authority;
+      diagnostics['authority'] = authority;
+      diagnostics['metadataContentType'] = metadataResponse.contentType;
+      diagnostics['metadataResponseSize'] = metadataResponse.body.length;
+      diagnostics['metadataPreview'] = _preview(metadataResponse.body);
+      final metadataFormats = _formatsFromMetadata(metadata);
+      if (metadataFormats.isNotEmpty) {
+        diagnostics['availableExportFormats'] =
+            metadataFormats.map(_exportFormatForDocumentType).join(', ');
+      }
+    } else {
+      diagnostics['metadataHttpStatus'] = metadataResponse.statusCode;
+      diagnostics['metadataContentType'] = metadataResponse.contentType;
+      diagnostics['metadataPreview'] = _preview(metadataResponse.body);
+    }
+
+    final mismatch = _authorityMismatch(sourceAuthority, authority, host);
+    if (mismatch != null) {
+      return _AieSourcePreflight(
+        valid: false,
+        fetchUri: inputUri,
+        selectedDocumentType: source.documentType,
+        availableDocumentTypes: const [],
+        messages: [mismatch],
+        diagnostics: {
+          ...diagnostics,
+          'failureLabel': 'Configuration error',
+          'configurationError': mismatch,
+          'configuredAuthority': sourceAuthority,
+          'detectedAuthority': authority,
+        },
+      );
+    }
+
+    final available =
+        _availableFormatsFromDiagnostics(diagnostics).toList(growable: true);
+    if (available.isEmpty) {
+      available.addAll(const [
+        AieDocumentType.csv,
+        AieDocumentType.json,
+        AieDocumentType.geojson,
+      ]);
+    }
+    final orderedAvailable = _orderedFormats(available);
+    final selected = _selectPreferredFormat(orderedAvailable);
+    final fetchUri = _exportUriForFormat(inputUri, datasetId, selected);
+    diagnostics
+      ..['selectedExportFormat'] = _exportFormatForDocumentType(selected)
+      ..['availableExportFormats'] =
+          orderedAvailable.map(_exportFormatForDocumentType).join(', ')
+      ..['constructedUrl'] = fetchUri.toString();
+    if (selected != source.documentType) {
+      messages.add(
+        'Configured ${source.documentType.name.toUpperCase()} export is not preferred/available; selected ${selected.name.toUpperCase()} automatically.',
+      );
+    }
+
+    return _AieSourcePreflight(
+      valid: true,
+      fetchUri: fetchUri,
+      selectedDocumentType: selected,
+      availableDocumentTypes: orderedAvailable,
+      messages: messages,
+      diagnostics: diagnostics,
+    );
+  }
+
+  _AieSourcePreflight? _nextFallbackPreflight(_AieSourcePreflight current) {
+    for (final documentType in current.availableDocumentTypes) {
+      if (documentType == current.selectedDocumentType) continue;
+      final format = _exportFormatForDocumentType(documentType);
+      final fallbackUri = _replaceExportFormat(current.fetchUri, format);
+      return _AieSourcePreflight(
+        valid: current.valid,
+        fetchUri: fallbackUri,
+        selectedDocumentType: documentType,
+        availableDocumentTypes: current.availableDocumentTypes,
+        messages: current.messages,
+        diagnostics: {
+          ...current.diagnostics,
+          'selectedExportFormat': format,
+          'constructedUrl': fallbackUri.toString(),
+        },
+      );
+    }
+    return null;
+  }
+
+  bool _isUnavailableExportResponse(AieFetchResponse response) {
+    if (response.statusCode == 406) return true;
+    final lower = response.body.toLowerCase();
+    return lower.contains('unacceptable_response_type') ||
+        lower.contains('requested type is not available');
+  }
+
+  String? _datasetIdFromUri(Uri uri) {
+    final segments = uri.pathSegments;
+    final viewsIndex = segments.indexOf('views');
+    if (viewsIndex >= 0 && viewsIndex + 1 < segments.length) {
+      return segments[viewsIndex + 1];
+    }
+    final resourceIndex = segments.indexOf('resource');
+    if (resourceIndex >= 0 && resourceIndex + 1 < segments.length) {
+      return segments[resourceIndex + 1].split('.').first;
+    }
+    return null;
+  }
+
+  Uri _exportUriForFormat(
+    Uri inputUri,
+    String datasetId,
+    AieDocumentType documentType,
+  ) {
+    final format = _exportFormatForDocumentType(documentType);
+    if (inputUri.path.contains('/export.')) {
+      return _replaceExportFormat(inputUri, format);
+    }
+    return Uri(
+      scheme: inputUri.scheme,
+      host: inputUri.host,
+      path: '/api/v3/views/$datasetId/export.$format',
+      queryParameters: const {'accessType': 'DOWNLOAD'},
+    );
+  }
+
+  Uri _replaceExportFormat(Uri uri, String format) {
+    final nextPath =
+        uri.path.replaceFirst(RegExp(r'export\.[^/]+$'), 'export.$format');
+    return uri.replace(path: nextPath);
+  }
+
+  AieDocumentType _selectPreferredFormat(List<AieDocumentType> available) {
+    return _orderedFormats(available).first;
+  }
+
+  List<AieDocumentType> _orderedFormats(List<AieDocumentType> available) {
+    const priority = [
+      AieDocumentType.csv,
+      AieDocumentType.json,
+      AieDocumentType.geojson,
+      AieDocumentType.xml,
+    ];
+    return [
+      ...priority.where(available.contains),
+      ...available.where((format) => !priority.contains(format)),
+    ];
+  }
+
+  Iterable<AieDocumentType> _availableFormatsFromDiagnostics(
+    Map<String, Object?> diagnostics,
+  ) sync* {
+    final value = diagnostics['availableExportFormats'];
+    if (value == null) return;
+    final text = value.toString().toLowerCase();
+    for (final documentType in const [
+      AieDocumentType.csv,
+      AieDocumentType.json,
+      AieDocumentType.geojson,
+      AieDocumentType.xml,
+    ]) {
+      if (text.contains(_exportFormatForDocumentType(documentType))) {
+        yield documentType;
+      }
+    }
+  }
+
+  List<AieDocumentType> _formatsFromMetadata(Map<String, Object?> metadata) {
+    final raw = metadata['availableExportFormats'] ??
+        metadata['availableFormats'] ??
+        metadata['exportFormats'];
+    if (raw is List) {
+      return raw
+          .map((value) => _documentTypeForExportFormat(value.toString()))
+          .whereType<AieDocumentType>()
+          .toList(growable: false);
+    }
+    if (raw is String) {
+      return raw
+          .split(RegExp(r'[,\\s]+'))
+          .map(_documentTypeForExportFormat)
+          .whereType<AieDocumentType>()
+          .toList(growable: false);
+    }
+    return const [];
+  }
+
+  Map<String, Object?> _decodeJsonMap(String body) {
+    final decoded = jsonDecode(body);
+    if (decoded is Map) return decoded.cast<String, Object?>();
+    return const {};
+  }
+
+  String? _authorityFromMetadata(Map<String, Object?> metadata) {
+    final candidates = [
+      metadata['authority'],
+      metadata['owner'],
+      metadata['attribution'],
+      metadata['name'],
+    ];
+    for (final value in candidates) {
+      if (value is Map) {
+        final displayName = value['displayName'] ?? value['name'];
+        if (displayName != null) return displayName.toString();
+      }
+      if (value is String && value.trim().isNotEmpty) return value;
+    }
+    return null;
+  }
+
+  String _authorityFromCouncil(String value) {
+    final lower = value.toLowerCase();
+    if (lower.contains('westminster')) return 'westminster';
+    if (lower.contains('camden')) return 'camden';
+    if (lower.contains('islington')) return 'islington';
+    if (lower.contains('lambeth')) return 'lambeth';
+    if (lower.contains('kensington') || lower.contains('chelsea')) {
+      return 'kensington';
+    }
+    return _safe(value);
+  }
+
+  String _authorityFromHost(String host) {
+    final lower = host.toLowerCase();
+    if (lower.contains('westminster')) return 'westminster';
+    if (lower.contains('camden')) return 'camden';
+    if (lower.contains('islington')) return 'islington';
+    if (lower.contains('lambeth')) return 'lambeth';
+    if (lower.contains('rbkc') ||
+        lower.contains('kensington') ||
+        lower.contains('chelsea')) {
+      return 'kensington';
+    }
+    return _safe(host);
+  }
+
+  String? _authorityMismatch(
+    String configuredAuthority,
+    String detectedAuthority,
+    String host,
+  ) {
+    final detected = _authorityFromCouncil(detectedAuthority);
+    if (configuredAuthority == detected) return null;
+    if (host.toLowerCase().contains(configuredAuthority)) return null;
+    return 'Configuration error: selected council may not match source dataset. Configured $configuredAuthority but source appears to be $detected.';
+  }
+
+  String _exportFormatForDocumentType(AieDocumentType documentType) {
+    return switch (documentType) {
+      AieDocumentType.csv => 'csv',
+      AieDocumentType.json => 'json',
+      AieDocumentType.geojson => 'geojson',
+      AieDocumentType.xml => 'xml',
+      AieDocumentType.rss => 'xml',
+      AieDocumentType.html => 'html',
+      AieDocumentType.pdf => 'pdf',
+      AieDocumentType.docx => 'docx',
+    };
+  }
+
+  AieDocumentType? _documentTypeForExportFormat(String value) {
+    final lower = value.toLowerCase().replaceAll('.', '').trim();
+    return switch (lower) {
+      'csv' => AieDocumentType.csv,
+      'json' => AieDocumentType.json,
+      'geojson' => AieDocumentType.geojson,
+      'xml' => AieDocumentType.xml,
+      _ => null,
+    };
+  }
 }
 
 class AieResolvedImportInput {
@@ -1382,6 +1773,7 @@ class AieResolvedImportInput {
     required this.checksum,
     required this.messages,
     required this.diagnostics,
+    required this.documentType,
     this.fetchUrl,
     this.contentType,
     this.fetchedAt,
@@ -1392,6 +1784,7 @@ class AieResolvedImportInput {
     required String checksum,
     List<String> messages = const [],
     Map<String, Object?> diagnostics = const {},
+    AieDocumentType? documentType,
     String? fetchUrl,
     String? contentType,
     DateTime? fetchedAt,
@@ -1402,6 +1795,7 @@ class AieResolvedImportInput {
       checksum: checksum,
       messages: messages,
       diagnostics: diagnostics,
+      documentType: documentType ?? AieDocumentType.csv,
       fetchUrl: fetchUrl,
       contentType: contentType,
       fetchedAt: fetchedAt,
@@ -1414,6 +1808,7 @@ class AieResolvedImportInput {
     String? fetchUrl,
     String? contentType,
     Map<String, Object?> diagnostics = const {},
+    AieDocumentType? documentType,
   }) {
     return AieResolvedImportInput(
       success: false,
@@ -1421,6 +1816,7 @@ class AieResolvedImportInput {
       checksum: checksum,
       messages: messages,
       diagnostics: diagnostics,
+      documentType: documentType ?? AieDocumentType.csv,
       fetchUrl: fetchUrl,
       contentType: contentType,
     );
@@ -1431,9 +1827,28 @@ class AieResolvedImportInput {
   final String checksum;
   final List<String> messages;
   final Map<String, Object?> diagnostics;
+  final AieDocumentType documentType;
   final String? fetchUrl;
   final String? contentType;
   final DateTime? fetchedAt;
+}
+
+class _AieSourcePreflight {
+  _AieSourcePreflight({
+    required this.valid,
+    required this.fetchUri,
+    required this.selectedDocumentType,
+    required this.availableDocumentTypes,
+    required this.messages,
+    required this.diagnostics,
+  });
+
+  final bool valid;
+  final Uri fetchUri;
+  final AieDocumentType selectedDocumentType;
+  final List<AieDocumentType> availableDocumentTypes;
+  final List<String> messages;
+  final Map<String, Object?> diagnostics;
 }
 
 class AieFetchResponse {
