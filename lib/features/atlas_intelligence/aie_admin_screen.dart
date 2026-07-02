@@ -90,6 +90,30 @@ class _AieAdminScreenState extends State<AieAdminScreen> {
     );
   }
 
+  Future<void> _retryFromLog(Map<String, Object?> log) async {
+    final diagnostics = (log['diagnostics'] as Map?)?.cast<String, Object?>() ??
+        const <String, Object?>{};
+    final selectedParser = diagnostics['selectedParser']?.toString();
+    final fetchUrl = log['fetchUrl']?.toString();
+    setState(() {
+      _sourceId.text = log['sourceId']?.toString() ?? _sourceId.text;
+      _sourceName.text = log['sourceId']?.toString() ?? _sourceName.text;
+      _sourceUrl.text = log['canonicalSourceUrl']?.toString() ??
+          log['sourceUrl']?.toString() ??
+          fetchUrl ??
+          _sourceUrl.text;
+      _council.text = log['council']?.toString() ?? _council.text;
+      _rawData.text = fetchUrl ?? _sourceUrl.text;
+      if (selectedParser != null) {
+        _documentType = AieDocumentType.values.firstWhere(
+          (value) => value.name == selectedParser,
+          orElse: () => _documentType,
+        );
+      }
+    });
+    await _runImport();
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<AieDashboardSummary>(
@@ -182,7 +206,7 @@ class _AieAdminScreenState extends State<AieAdminScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            _TwoColumnLists(summary: summary),
+            _TwoColumnLists(summary: summary, onRetryLog: _retryFromLog),
           ],
         );
       },
@@ -329,9 +353,10 @@ class _ImportPanel extends StatelessWidget {
 }
 
 class _TwoColumnLists extends StatelessWidget {
-  const _TwoColumnLists({required this.summary});
+  const _TwoColumnLists({required this.summary, required this.onRetryLog});
 
   final AieDashboardSummary summary;
+  final Future<void> Function(Map<String, Object?> log) onRetryLog;
 
   @override
   Widget build(BuildContext context) {
@@ -349,6 +374,7 @@ class _TwoColumnLists extends StatelessWidget {
                         title:
                             log['sourceId']?.toString() ?? log['id'].toString(),
                         subtitle: _logSubtitle(log),
+                        onTap: () => _showImportDetails(context, log),
                       ),
                   ],
                 ),
@@ -386,19 +412,35 @@ class _TwoColumnLists extends StatelessWidget {
   }
 
   String _logSubtitle(Map<String, Object?> log) {
+    final diagnostics = (log['diagnostics'] as Map?)?.cast<String, Object?>() ??
+        const <String, Object?>{};
     final messages = (log['messages'] as List?)
             ?.map((value) => value.toString())
             .where((value) => value.trim().isNotEmpty)
             .join(' • ') ??
         '';
     final fetchUrl = log['fetchUrl']?.toString();
+    final failureLabel = diagnostics['failureLabel']?.toString();
     return [
-      '${log['status'] ?? 'unknown'}',
+      failureLabel ?? '${log['status'] ?? 'unknown'}',
       'imported ${log['imported'] ?? 0}',
       'failed ${log['failed'] ?? 0}',
       if (fetchUrl != null && fetchUrl.isNotEmpty) 'fetch: $fetchUrl',
       if (messages.isNotEmpty) messages,
     ].join(' • ');
+  }
+
+  void _showImportDetails(BuildContext context, Map<String, Object?> log) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => _ImportDetailsDialog(
+        log: log,
+        onRetry: () async {
+          Navigator.of(context).pop();
+          await onRetryLog(log);
+        },
+      ),
+    );
   }
 }
 
@@ -506,40 +548,222 @@ class _SourceRow extends StatelessWidget {
 }
 
 class _MapRow extends StatelessWidget {
-  const _MapRow({required this.title, required this.subtitle});
+  const _MapRow({required this.title, required this.subtitle, this.onTap});
 
   final String title;
   final String subtitle;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: ParkPalAdminColors.glassBorder),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: ParkPalAdminColors.glassBorder),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.hub_outlined, color: ParkPalAdminColors.cyan),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: adminBody(weight: FontWeight.w800)),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: adminBody(color: ParkPalAdminColors.muted, size: 12),
+                  ),
+                ],
+              ),
+            ),
+            if (onTap != null)
+              const Icon(
+                Icons.chevron_right,
+                color: ParkPalAdminColors.muted,
+              ),
+          ],
+        ),
       ),
-      child: Row(
-        children: [
-          const Icon(Icons.hub_outlined, color: ParkPalAdminColors.cyan),
-          const SizedBox(width: 12),
-          Expanded(
+    );
+  }
+}
+
+class _ImportDetailsDialog extends StatelessWidget {
+  const _ImportDetailsDialog({required this.log, required this.onRetry});
+
+  final Map<String, Object?> log;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final diagnostics = (log['diagnostics'] as Map?)?.cast<String, Object?>() ??
+        const <String, Object?>{};
+    final messages = (log['messages'] as List?)
+            ?.map((value) => value.toString())
+            .where((value) => value.trim().isNotEmpty)
+            .toList(growable: false) ??
+        const <String>[];
+    final failed = (log['failed'] as num?)?.toInt() ?? 0;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: adminGlassDecoration(),
+          child: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: adminBody(weight: FontWeight.w800)),
-                const SizedBox(height: 4),
+                Text('Import details', style: adminHeading(size: 36)),
+                const SizedBox(height: 8),
                 Text(
-                  subtitle,
-                  style: adminBody(color: ParkPalAdminColors.muted, size: 12),
+                  log['sourceId']?.toString() ?? log['id']?.toString() ?? '',
+                  style: adminBody(color: ParkPalAdminColors.muted),
+                ),
+                const SizedBox(height: 18),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _MiniStat(label: 'Status', value: '${log['status']}'),
+                    _MiniStat(label: 'Imported', value: '${log['imported']}'),
+                    _MiniStat(label: 'Failed', value: '${log['failed']}'),
+                    _MiniStat(label: 'Skipped', value: '${log['skipped']}'),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                _DetailsGrid(items: {
+                  'Failure label': diagnostics['failureLabel'],
+                  'Fetched URL': log['fetchUrl'] ?? diagnostics['fetchUrl'],
+                  'HTTP status': diagnostics['httpStatus'],
+                  'Final redirected URL': diagnostics['finalUrl'],
+                  'Content type':
+                      log['contentType'] ?? diagnostics['contentType'],
+                  'Response size': diagnostics['responseSize'],
+                  'Selected parser': diagnostics['selectedParser'],
+                  'Parser error': diagnostics['parserError'],
+                  'Timestamp':
+                      diagnostics['diagnosticsTimestamp'] ?? log['createdAt'],
+                }),
+                if (messages.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  Text('Messages', style: adminBody(weight: FontWeight.w800)),
+                  const SizedBox(height: 8),
+                  for (final message in messages)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text(
+                        message,
+                        style: adminBody(
+                          color: failed > 0
+                              ? ParkPalAdminColors.red
+                              : ParkPalAdminColors.muted,
+                        ),
+                      ),
+                    ),
+                ],
+                const SizedBox(height: 18),
+                Text(
+                  'First 300 chars',
+                  style: adminBody(weight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: ParkPalAdminColors.glassBorder),
+                  ),
+                  child: Text(
+                    diagnostics['responsePreview']?.toString() ??
+                        'No response preview recorded.',
+                    style: adminBody(
+                      color: ParkPalAdminColors.muted,
+                      size: 12,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Close'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: onRetry,
+                        icon: const Icon(Icons.refresh_outlined),
+                        label: const Text('Retry import'),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-        ],
+        ),
       ),
+    );
+  }
+}
+
+class _DetailsGrid extends StatelessWidget {
+  const _DetailsGrid({required this.items});
+
+  final Map<String, Object?> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: [
+        for (final entry in items.entries)
+          SizedBox(
+            width: 350,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: ParkPalAdminColors.glassBorder),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    entry.key,
+                    style: adminBody(
+                      color: ParkPalAdminColors.muted,
+                      size: 11,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    entry.value?.toString() ?? 'Not recorded',
+                    style: adminBody(weight: FontWeight.w800, size: 12),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

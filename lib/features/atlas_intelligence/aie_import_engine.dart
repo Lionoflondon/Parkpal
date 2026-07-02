@@ -87,6 +87,7 @@ class AieImportEngine {
           fetchUrl: resolved.fetchUrl,
           contentType: resolved.contentType,
           fetchedAt: resolved.fetchedAt,
+          diagnostics: resolved.diagnostics,
         );
         return AieImportResult(
           batchId: batchId,
@@ -128,6 +129,7 @@ class AieImportEngine {
           fetchUrl: resolved.fetchUrl,
           contentType: resolved.contentType,
           fetchedAt: resolved.fetchedAt,
+          diagnostics: resolved.diagnostics,
         );
         return AieImportResult(
           batchId: batchId,
@@ -176,6 +178,10 @@ class AieImportEngine {
           fetchUrl: resolved.fetchUrl,
           contentType: resolved.contentType,
           fetchedAt: resolved.fetchedAt,
+          diagnostics: {
+            ...resolved.diagnostics,
+            'parserError': 'Duplicate checksum skipped.',
+          },
         );
         return AieImportResult(
           batchId: batchId,
@@ -201,6 +207,8 @@ class AieImportEngine {
         failed++;
         final reason = _parserFailureMessage(source.documentType);
         messages.add(reason);
+        resolved.diagnostics['parserError'] = reason;
+        resolved.diagnostics['failureLabel'] = _failureLabelForReason(reason);
         await _deadLetter(firestore, batchId, source, reason);
       }
 
@@ -370,6 +378,7 @@ class AieImportEngine {
         fetchUrl: resolved.fetchUrl,
         contentType: resolved.contentType,
         fetchedAt: resolved.fetchedAt,
+        diagnostics: resolved.diagnostics,
       );
       await _audit(firestore, 'import_finished', {
         'batchId': batchId,
@@ -415,6 +424,12 @@ class AieImportEngine {
       return AieResolvedImportInput.failure(
         checksum: _checksum(''),
         messages: const ['Empty response: paste data or a download URL.'],
+        diagnostics: {
+          'failureLabel': 'Empty response',
+          'selectedParser': source.documentType.name,
+          'responseSize': 0,
+          'diagnosticsTimestamp': DateTime.now().toUtc().toIso8601String(),
+        },
       );
     }
 
@@ -429,6 +444,13 @@ class AieImportEngine {
         body: trimmed,
         checksum: _checksum(trimmed),
         messages: warnings,
+        diagnostics: {
+          'inputMode': 'raw',
+          'selectedParser': source.documentType.name,
+          'responseSize': trimmed.length,
+          'responsePreview': _preview(trimmed),
+          'diagnosticsTimestamp': DateTime.now().toUtc().toIso8601String(),
+        },
       );
     }
 
@@ -439,6 +461,13 @@ class AieImportEngine {
           checksum: _checksum(trimmed),
           fetchUrl: inputUri.toString(),
           messages: const ['URL unreachable.'],
+          diagnostics: {
+            'failureLabel': 'URL unreachable',
+            'fetchUrl': inputUri.toString(),
+            'selectedParser': source.documentType.name,
+            'responseSize': 0,
+            'diagnosticsTimestamp': DateTime.now().toUtc().toIso8601String(),
+          },
         );
       }
       if (response.statusCode != 200) {
@@ -446,7 +475,18 @@ class AieImportEngine {
           checksum: _checksum(trimmed),
           fetchUrl: response.finalUrl ?? inputUri.toString(),
           contentType: response.contentType,
-          messages: ['HTTP status error: ${response.statusCode}.'],
+          messages: ['HTTP ${response.statusCode}.'],
+          diagnostics: {
+            'failureLabel': 'HTTP ${response.statusCode}',
+            'fetchUrl': inputUri.toString(),
+            'finalUrl': response.finalUrl ?? inputUri.toString(),
+            'httpStatus': response.statusCode,
+            'contentType': response.contentType,
+            'selectedParser': source.documentType.name,
+            'responseSize': response.body.length,
+            'responsePreview': _preview(response.body),
+            'diagnosticsTimestamp': DateTime.now().toUtc().toIso8601String(),
+          },
         );
       }
       if (response.body.trim().isEmpty) {
@@ -455,16 +495,29 @@ class AieImportEngine {
           fetchUrl: response.finalUrl ?? inputUri.toString(),
           contentType: response.contentType,
           messages: const ['Empty response.'],
+          diagnostics: {
+            'failureLabel': 'Empty response',
+            'fetchUrl': inputUri.toString(),
+            'finalUrl': response.finalUrl ?? inputUri.toString(),
+            'httpStatus': response.statusCode,
+            'contentType': response.contentType,
+            'selectedParser': source.documentType.name,
+            'responseSize': 0,
+            'diagnosticsTimestamp': DateTime.now().toUtc().toIso8601String(),
+          },
         );
       }
 
       final contentType = response.contentType;
       final messages = [
         'Fetched official download URL.',
+        ..._hardContentTypeFailures(source.documentType, contentType),
         ..._contentTypeWarnings(source.documentType, contentType),
         ..._councilWarnings(
             source, response.body, response.finalUrl ?? trimmed),
       ];
+      final htmlCsvMismatch =
+          source.documentType == AieDocumentType.csv && _looksHtml(contentType);
       return AieResolvedImportInput.success(
         body: response.body,
         checksum: _checksum(response.body),
@@ -472,12 +525,33 @@ class AieImportEngine {
         contentType: contentType,
         fetchedAt: DateTime.now().toUtc(),
         messages: messages,
+        diagnostics: {
+          'inputMode': 'url',
+          'fetchUrl': inputUri.toString(),
+          'finalUrl': response.finalUrl ?? inputUri.toString(),
+          'httpStatus': response.statusCode,
+          'contentType': contentType,
+          'selectedParser': source.documentType.name,
+          'responseSize': response.body.length,
+          'responsePreview': _preview(response.body),
+          if (htmlCsvMismatch) 'failureLabel': 'Returned HTML not CSV',
+          if (htmlCsvMismatch) 'parserError': 'Returned HTML not CSV.',
+          'diagnosticsTimestamp': DateTime.now().toUtc().toIso8601String(),
+        },
       );
     } catch (error) {
       return AieResolvedImportInput.failure(
         checksum: _checksum(trimmed),
         fetchUrl: inputUri.toString(),
         messages: ['URL unreachable: $error'],
+        diagnostics: {
+          'failureLabel': 'URL unreachable',
+          'fetchUrl': inputUri.toString(),
+          'selectedParser': source.documentType.name,
+          'parserError': error.toString(),
+          'responseSize': 0,
+          'diagnosticsTimestamp': DateTime.now().toUtc().toIso8601String(),
+        },
       );
     }
   }
@@ -757,6 +831,7 @@ class AieImportEngine {
     String? fetchUrl,
     String? contentType,
     DateTime? fetchedAt,
+    Map<String, Object?> diagnostics = const {},
   }) async {
     await firestore.collection(AieCollections.importLogs).doc(batchId).set({
       'batchId': batchId,
@@ -776,6 +851,10 @@ class AieImportEngine {
       'conflicts': conflicts,
       'missionsCreated': missions,
       'messages': messages,
+      'diagnostics': {
+        ...diagnostics,
+        'timestamp': FieldValue.serverTimestamp(),
+      },
       'createdAt': FieldValue.serverTimestamp(),
     });
   }
@@ -866,7 +945,7 @@ class AieImportEngine {
   String _parserFailureMessage(AieDocumentType documentType) {
     return switch (documentType) {
       AieDocumentType.csv =>
-        'Invalid CSV: no valid rows found. Check headers such as roadName/streetName and restrictionType.',
+        'Invalid CSV headers: no valid rows found. Check headers such as roadName/streetName and restrictionType.',
       AieDocumentType.json => 'Invalid JSON: parser found no valid records.',
       AieDocumentType.geojson =>
         'Invalid GeoJSON: parser found no valid features.',
@@ -879,6 +958,30 @@ class AieImportEngine {
       AieDocumentType.docx =>
         'Unsupported document type for direct URL parsing: extract text first or connect a document parser.',
     };
+  }
+
+  String _failureLabelForReason(String reason) {
+    final lower = reason.toLowerCase();
+    if (lower.contains('invalid csv')) return 'Invalid CSV headers';
+    if (lower.contains('invalid json')) return 'Invalid JSON';
+    if (lower.contains('invalid geojson')) return 'Invalid GeoJSON';
+    if (lower.contains('invalid xml') || lower.contains('rss')) {
+      return 'Invalid XML';
+    }
+    if (lower.contains('html')) return 'Returned HTML not CSV';
+    if (lower.contains('duplicate')) return 'Duplicate checksum skipped';
+    return 'Parser failed';
+  }
+
+  List<String> _hardContentTypeFailures(
+    AieDocumentType selected,
+    String? contentType,
+  ) {
+    if (contentType == null) return const [];
+    if (selected == AieDocumentType.csv && _looksHtml(contentType)) {
+      return const ['Returned HTML not CSV.'];
+    }
+    return const [];
   }
 
   List<String> _contentTypeWarnings(
@@ -904,6 +1007,10 @@ class AieImportEngine {
     return [
       'Unsupported document type warning: response content-type "$contentType" may not match selected ${selected.name.toUpperCase()}.',
     ];
+  }
+
+  bool _looksHtml(String? contentType) {
+    return contentType?.toLowerCase().contains('html') ?? false;
   }
 
   List<String> _councilWarnings(
@@ -980,6 +1087,12 @@ class AieImportEngine {
     }
     return hash.toRadixString(16);
   }
+
+  String _preview(String value) {
+    final cleaned = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (cleaned.length <= 300) return cleaned;
+    return cleaned.substring(0, 300);
+  }
 }
 
 class AieResolvedImportInput {
@@ -988,6 +1101,7 @@ class AieResolvedImportInput {
     required this.body,
     required this.checksum,
     required this.messages,
+    required this.diagnostics,
     this.fetchUrl,
     this.contentType,
     this.fetchedAt,
@@ -997,6 +1111,7 @@ class AieResolvedImportInput {
     required String body,
     required String checksum,
     List<String> messages = const [],
+    Map<String, Object?> diagnostics = const {},
     String? fetchUrl,
     String? contentType,
     DateTime? fetchedAt,
@@ -1006,6 +1121,7 @@ class AieResolvedImportInput {
       body: body,
       checksum: checksum,
       messages: messages,
+      diagnostics: diagnostics,
       fetchUrl: fetchUrl,
       contentType: contentType,
       fetchedAt: fetchedAt,
@@ -1017,12 +1133,14 @@ class AieResolvedImportInput {
     required List<String> messages,
     String? fetchUrl,
     String? contentType,
+    Map<String, Object?> diagnostics = const {},
   }) {
     return AieResolvedImportInput(
       success: false,
       body: '',
       checksum: checksum,
       messages: messages,
+      diagnostics: diagnostics,
       fetchUrl: fetchUrl,
       contentType: contentType,
     );
@@ -1032,6 +1150,7 @@ class AieResolvedImportInput {
   final String body;
   final String checksum;
   final List<String> messages;
+  final Map<String, Object?> diagnostics;
   final String? fetchUrl;
   final String? contentType;
   final DateTime? fetchedAt;

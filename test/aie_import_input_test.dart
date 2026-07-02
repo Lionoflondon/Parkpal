@@ -59,6 +59,12 @@ void main() {
     expect(resolved.fetchUrl, 'https://data.westminster.gov.uk/parking.csv');
     expect(resolved.contentType, 'text/csv');
     expect(resolved.fetchedAt, isNotNull);
+    expect(resolved.diagnostics['httpStatus'], 200);
+    expect(resolved.diagnostics['finalUrl'],
+        'https://data.westminster.gov.uk/parking.csv');
+    expect(resolved.diagnostics['responseSize'], greaterThan(20));
+    expect(resolved.diagnostics['selectedParser'], 'csv');
+    expect(resolved.diagnostics['responsePreview'], contains('Oxford Street'));
     expect(records.single.roadName, 'Oxford Street');
   });
 
@@ -71,6 +77,7 @@ void main() {
 
     expect(resolved.success, isFalse);
     expect(resolved.messages.join(' '), contains('Empty response'));
+    expect(resolved.diagnostics['failureLabel'], 'Empty response');
   });
 
   test('unreachable URL fails clearly', () async {
@@ -82,6 +89,52 @@ void main() {
 
     expect(resolved.success, isFalse);
     expect(resolved.messages, contains('URL unreachable.'));
+    expect(resolved.diagnostics['failureLabel'], 'URL unreachable');
+  });
+
+  test('HTTP status failure records diagnostics', () async {
+    final engine = AieImportEngine(
+      fetchClient: _FakeFetchClient({
+        'https://data.westminster.gov.uk/private.csv': const AieFetchResponse(
+          statusCode: 403,
+          contentType: 'text/html',
+          finalUrl: 'https://data.westminster.gov.uk/private.csv',
+          body: '<html>Forbidden</html>',
+        ),
+      }),
+    );
+    final resolved = await engine.resolveImportInput(
+      source: westminsterSource,
+      input: 'https://data.westminster.gov.uk/private.csv',
+    );
+
+    expect(resolved.success, isFalse);
+    expect(resolved.messages, contains('HTTP 403.'));
+    expect(resolved.diagnostics['failureLabel'], 'HTTP 403');
+    expect(resolved.diagnostics['httpStatus'], 403);
+    expect(resolved.diagnostics['responsePreview'], contains('Forbidden'));
+  });
+
+  test('HTML returned for selected CSV is labelled clearly', () async {
+    final engine = AieImportEngine(
+      fetchClient: _FakeFetchClient({
+        'https://data.westminster.gov.uk/download': const AieFetchResponse(
+          statusCode: 200,
+          contentType: 'text/html; charset=utf-8',
+          finalUrl: 'https://data.westminster.gov.uk/download',
+          body: '<html><title>Sign in</title></html>',
+        ),
+      }),
+    );
+    final resolved = await engine.resolveImportInput(
+      source: westminsterSource,
+      input: 'https://data.westminster.gov.uk/download',
+    );
+
+    expect(resolved.success, isTrue);
+    expect(resolved.messages, contains('Returned HTML not CSV.'));
+    expect(resolved.diagnostics['failureLabel'], 'Returned HTML not CSV');
+    expect(resolved.diagnostics['parserError'], 'Returned HTML not CSV.');
   });
 
   test('invalid CSV produces no parsed records', () async {
