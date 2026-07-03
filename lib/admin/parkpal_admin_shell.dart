@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../features/atlas_intelligence/aie_admin_screen.dart';
+import '../features/dtro/dtro_admin_screen.dart';
 import '../features/parkpal_atlas/iris_coverage_forecast_admin_section.dart';
 import 'parkpal_admin_data_service.dart';
 import 'parkpal_admin_settings_screen.dart';
@@ -9,6 +10,7 @@ import 'parkpal_admin_theme.dart';
 enum ParkPalAdminSection {
   dashboard,
   atlasIntelligence,
+  dtroLegalData,
   councils,
   signRepository,
   roadRules,
@@ -119,6 +121,7 @@ class _ParkPalAdminShellState extends State<ParkPalAdminShell> {
     return switch (section) {
       ParkPalAdminSection.dashboard => const _DashboardPage(),
       ParkPalAdminSection.atlasIntelligence => const AieAdminScreen(),
+      ParkPalAdminSection.dtroLegalData => const DtroAdminScreen(),
       ParkPalAdminSection.coverageForecast =>
         const IrisCoverageForecastAdminSection(),
       ParkPalAdminSection.settings => const ParkPalAdminSettingsScreen(),
@@ -678,6 +681,7 @@ bool _canViewSection(String role, ParkPalAdminSection section) {
     return const {
       ParkPalAdminSection.dashboard,
       ParkPalAdminSection.atlasIntelligence,
+      ParkPalAdminSection.dtroLegalData,
       ParkPalAdminSection.signRepository,
       ParkPalAdminSection.roadRules,
       ParkPalAdminSection.irisReview,
@@ -698,6 +702,7 @@ bool _canViewSection(String role, ParkPalAdminSection section) {
     return const {
       ParkPalAdminSection.dashboard,
       ParkPalAdminSection.atlasIntelligence,
+      ParkPalAdminSection.dtroLegalData,
       ParkPalAdminSection.councils,
       ParkPalAdminSection.signRepository,
       ParkPalAdminSection.roadRules,
@@ -714,6 +719,7 @@ String _emptyCopyFor(ParkPalAdminSection section) {
     ParkPalAdminSection.councils => 'No council rule sources loaded yet.',
     ParkPalAdminSection.atlasIntelligence =>
       'No Atlas Intelligence Engine records visible yet.',
+    ParkPalAdminSection.dtroLegalData => 'Waiting for D-TRO API approval.',
     ParkPalAdminSection.signRepository => 'No sign records ready for review.',
     ParkPalAdminSection.roadRules => 'No road rules loaded yet.',
     ParkPalAdminSection.userChecks => 'No user parking checks recorded yet.',
@@ -764,6 +770,18 @@ _ModuleDefinition _definitionFor(ParkPalAdminSection section) {
           'Atlas Knowledge Graph',
           'Conflict engine',
           'Mission queue'
+        ],
+      ),
+    ParkPalAdminSection.dtroLegalData => const _ModuleDefinition(
+        title: 'D-TRO Legal Data',
+        description:
+            'Canonical legal restriction records from the D-TRO model, preserving raw legal JSON, authority, source, version, geometry and rule status.',
+        collection: 'parkpal_dtro_legal_records',
+        capabilities: [
+          'Legal orders',
+          'D-TRO regulation types',
+          'IRIS explanations',
+          'Version history'
         ],
       ),
     ParkPalAdminSection.signRepository => const _ModuleDefinition(
@@ -857,6 +875,7 @@ IconData _iconFor(ParkPalAdminSection section) {
   return switch (section) {
     ParkPalAdminSection.dashboard => Icons.dashboard_outlined,
     ParkPalAdminSection.atlasIntelligence => Icons.hub_outlined,
+    ParkPalAdminSection.dtroLegalData => Icons.policy_outlined,
     ParkPalAdminSection.councils => Icons.account_balance_outlined,
     ParkPalAdminSection.signRepository => Icons.traffic_outlined,
     ParkPalAdminSection.roadRules => Icons.edit_road_outlined,
