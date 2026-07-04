@@ -69,4 +69,29 @@ void main() {
     expect(record.toMap()['rawProvision'],
         {'regulationType': 'kerbsideNoWaiting'});
   });
+
+  test('D-TRO Firestore data is converted to web-safe numbers', () {
+    final data = dtroWebSafeMap({
+      'recordsFetched': _Int64Like('12'),
+      'recordsImported': _Int64Like('9'),
+      'confidence': _Int64Like('98'),
+      'nested': {
+        'responseSize': _Int64Like('2048'),
+      },
+    });
+
+    expect(data['recordsFetched'], 12);
+    expect(data['recordsImported'], 9);
+    expect(dtroSafeDouble(data['confidence']), 98);
+    expect((data['nested'] as Map<String, Object?>)['responseSize'], 2048);
+  });
+}
+
+class _Int64Like {
+  const _Int64Like(this.value);
+
+  final String value;
+
+  @override
+  String toString() => value;
 }

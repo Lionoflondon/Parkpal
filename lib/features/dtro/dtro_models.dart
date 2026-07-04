@@ -165,7 +165,7 @@ class DtroVehicleCharacteristics {
     return DtroVehicleCharacteristics(
       vehicleType: _string(data['vehicleType']),
       permitType: _string(data['permitType']),
-      maxWeightKg: (data['maxWeightKg'] as num?)?.toDouble(),
+      maxWeightKg: dtroSafeDouble(data['maxWeightKg']),
       disabledBadgeRequired: data['disabledBadgeRequired'] as bool?,
     );
   }
@@ -193,7 +193,7 @@ class DtroRate {
 
   factory DtroRate.fromMap(Map<String, Object?> data) {
     return DtroRate(
-      amount: (data['amount'] as num?)?.toDouble(),
+      amount: dtroSafeDouble(data['amount']),
       currency: _string(data['currency']),
       duration: _string(data['duration']),
       description: _string(data['description']),
@@ -412,7 +412,7 @@ class DtroLegalRecord {
       geometry: data['geometry'] is Map
           ? DtroGeometry.fromMap((data['geometry'] as Map).cast())
           : null,
-      confidence: (data['confidence'] as num?)?.toDouble() ?? 0,
+      confidence: dtroSafeDouble(data['confidence']) ?? 0,
       verificationStatus: DtroVerificationStatus.values.firstWhere(
         (value) => value.name == data['verificationStatus'],
         orElse: () => DtroVerificationStatus.pending,
@@ -556,9 +556,58 @@ String? _string(Object? value) {
   return text.isEmpty ? null : text;
 }
 
+int? dtroSafeInt(Object? value) {
+  if (value == null) return null;
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  final text = value.toString().trim();
+  if (text.isEmpty) return null;
+  return int.tryParse(text) ?? double.tryParse(text)?.toInt();
+}
+
+double? dtroSafeDouble(Object? value) {
+  if (value == null) return null;
+  if (value is double) return value;
+  if (value is num) return value.toDouble();
+  final text = value.toString().trim();
+  if (text.isEmpty) return null;
+  return double.tryParse(text);
+}
+
+Object? dtroWebSafeValue(Object? value) {
+  if (value == null ||
+      value is String ||
+      value is bool ||
+      value is int ||
+      value is double) {
+    return value;
+  }
+  if (value is num) return value.toDouble();
+  if (value is Timestamp) return value.toDate();
+  if (value is DateTime) return value;
+  if (value is List) {
+    return value.map((item) => dtroWebSafeValue(item)).toList(growable: false);
+  }
+  if (value is Map) {
+    return value.map(
+      (key, item) => MapEntry(key.toString(), dtroWebSafeValue(item)),
+    );
+  }
+  final text = value.toString();
+  return int.tryParse(text) ?? double.tryParse(text) ?? text;
+}
+
+Map<String, Object?> dtroWebSafeMap(Map<Object?, Object?> data) {
+  return data.map(
+    (key, value) => MapEntry(key.toString(), dtroWebSafeValue(value)),
+  );
+}
+
 DateTime? _timestampDate(Object? value) {
   if (value is Timestamp) return value.toDate();
   if (value is DateTime) return value;
   if (value is String) return DateTime.tryParse(value);
-  return null;
+  final text = value?.toString();
+  if (text == null || text.trim().isEmpty) return null;
+  return DateTime.tryParse(text);
 }

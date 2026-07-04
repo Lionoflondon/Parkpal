@@ -16,7 +16,10 @@ class DtroLegalService {
         .limit(limit)
         .get();
     return snapshot.docs
-        .map((doc) => DtroLegalRecord.fromMap(doc.id, doc.data()))
+        .map((doc) => DtroLegalRecord.fromMap(
+              doc.id,
+              dtroWebSafeMap(doc.data()),
+            ))
         .toList(growable: false);
   }
 

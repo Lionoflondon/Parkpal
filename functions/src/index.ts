@@ -110,16 +110,19 @@ export const syncParkPalDtroLegalData = onCall(
     };
     const credentialFailures = validateDtroCredentials(credentials);
     if (credentialFailures.length > 0) {
-      const payload = {
+      const responsePayload = {
         apiConnected: false,
-        lastSyncTime: admin.firestore.FieldValue.serverTimestamp(),
+        lastSyncTime: startedAt.toISOString(),
         recordsFetched: 0,
         recordsImported: 0,
         failures: credentialFailures,
         status: "failed",
       };
-      await syncRef.set(payload, {merge: true});
-      return {...payload, lastSyncTime: startedAt.toISOString()};
+      await syncRef.set(
+        {...responsePayload, lastSyncTime: admin.firestore.FieldValue.serverTimestamp()},
+        {merge: true},
+      );
+      return responsePayload;
     }
 
     try {
@@ -157,9 +160,9 @@ export const syncParkPalDtroLegalData = onCall(
         }
       }
       const status = failures.length > 0 ? "partial_success" : "success";
-      const payload = {
+      const responsePayload = {
         apiConnected: true,
-        lastSyncTime: admin.firestore.FieldValue.serverTimestamp(),
+        lastSyncTime: startedAt.toISOString(),
         recordsFetched: response.records.length,
         recordsImported: imported,
         failures,
@@ -168,20 +171,26 @@ export const syncParkPalDtroLegalData = onCall(
         contentType: response.contentType,
         responseSize: response.responseSize,
       };
-      await syncRef.set(payload, {merge: true});
-      return {...payload, lastSyncTime: startedAt.toISOString()};
+      await syncRef.set(
+        {...responsePayload, lastSyncTime: admin.firestore.FieldValue.serverTimestamp()},
+        {merge: true},
+      );
+      return responsePayload;
     } catch (error) {
       const failures = [String(error)];
-      const payload = {
+      const responsePayload = {
         apiConnected: false,
-        lastSyncTime: admin.firestore.FieldValue.serverTimestamp(),
+        lastSyncTime: startedAt.toISOString(),
         recordsFetched: 0,
         recordsImported: 0,
         failures,
         status: "failed",
       };
-      await syncRef.set(payload, {merge: true});
-      return {...payload, lastSyncTime: startedAt.toISOString()};
+      await syncRef.set(
+        {...responsePayload, lastSyncTime: admin.firestore.FieldValue.serverTimestamp()},
+        {merge: true},
+      );
+      return responsePayload;
     }
   },
 );

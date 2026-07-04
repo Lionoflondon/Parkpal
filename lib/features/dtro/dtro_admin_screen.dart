@@ -39,7 +39,7 @@ class _DtroAdminScreenState extends State<DtroAdminScreen> {
           .collection('parkpal_dtro_sync_status')
           .doc('live')
           .get();
-      return snapshot.data() ?? const {};
+      return dtroWebSafeMap(snapshot.data() ?? const {});
     } catch (_) {
       return const {};
     }
@@ -51,9 +51,10 @@ class _DtroAdminScreenState extends State<DtroAdminScreen> {
       final callable = FirebaseFunctions.instanceFor(region: 'europe-west2')
           .httpsCallable('syncParkPalDtroLegalData');
       final result = await callable.call<Map<Object?, Object?>>({});
+      final data = dtroWebSafeMap(result.data);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('D-TRO sync ${result.data['status']}.')),
+        SnackBar(content: Text('D-TRO sync ${data['status']}.')),
       );
     } catch (error) {
       if (!mounted) return;
