@@ -4,6 +4,12 @@ import {onSchedule} from "firebase-functions/v2/scheduler";
 import {logger} from "firebase-functions";
 import {adapterFor} from "./aie_v2_adapters";
 import {
+  fetchDtroRecords,
+  firestoreWritePayload,
+  normalizeDtroRecord,
+  validateDtroCredentials,
+} from "./dtro_live";
+import {
   CouncilSource,
   deterministicRestrictionId,
   NormalizedRecordDraft,
@@ -16,6 +22,9 @@ const councilsCollection = "parkpal_councils";
 const restrictionsCollection = "parkpal_restrictions";
 const runsCollection = "parkpal_aie_import_runs";
 const requestsCollection = "parkpal_aie_import_requests";
+const dtroRawOrdersCollection = "parkpal_dtro_raw_orders";
+const dtroLegalRecordsCollection = "parkpal_dtro_legal_records";
+const dtroSyncStatusCollection = "parkpal_dtro_sync_status";
 
 export const runParkPalAieIngestionJob = onSchedule(
   {
@@ -84,6 +93,96 @@ export const runParkPalAieCouncilIngestion = onCall(
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     return result;
+  },
+);
+
+export const syncParkPalDtroLegalData = onCall(
+  {region: "europe-west2"},
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "ParkPal Admin sign-in is required.");
+    }
+    const startedAt = new Date();
+    const syncRef = db.collection(dtroSyncStatusCollection).doc("live");
+    const credentials = {
+      apiBaseUrl: process.env.DTRO_API_BASE_URL,
+      apiKey: process.env.DTRO_API_KEY,
+    };
+    const credentialFailures = validateDtroCredentials(credentials);
+    if (credentialFailures.length > 0) {
+      const payload = {
+        apiConnected: false,
+        lastSyncTime: admin.firestore.FieldValue.serverTimestamp(),
+        recordsFetched: 0,
+        recordsImported: 0,
+        failures: credentialFailures,
+        status: "failed",
+      };
+      await syncRef.set(payload, {merge: true});
+      return {...payload, lastSyncTime: startedAt.toISOString()};
+    }
+
+    try {
+      const response = await fetchDtroRecords(credentials);
+      let imported = 0;
+      const failures: string[] = [];
+      for (const [index, raw] of response.records.entries()) {
+        try {
+          const legalRecords = normalizeDtroRecord(raw, index);
+          const troId = legalRecords[0]?.troId ?? `dtro_${index}`;
+          await db.collection(dtroRawOrdersCollection).doc(troId).set(
+            {
+              troId,
+              rawDtroJson: raw,
+              source: "live_dtro_api",
+              storedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            {merge: true},
+          );
+          for (const record of legalRecords) {
+            await db
+              .collection(dtroLegalRecordsCollection)
+              .doc(record.id)
+              .set(
+                {
+                  ...firestoreWritePayload(record),
+                  lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                },
+                {merge: true},
+              );
+            imported++;
+          }
+        } catch (error) {
+          failures.push(`normalization/write failed for row ${index}: ${String(error)}`);
+        }
+      }
+      const status = failures.length > 0 ? "partial_success" : "success";
+      const payload = {
+        apiConnected: true,
+        lastSyncTime: admin.firestore.FieldValue.serverTimestamp(),
+        recordsFetched: response.records.length,
+        recordsImported: imported,
+        failures,
+        status,
+        httpStatus: response.httpStatus,
+        contentType: response.contentType,
+        responseSize: response.responseSize,
+      };
+      await syncRef.set(payload, {merge: true});
+      return {...payload, lastSyncTime: startedAt.toISOString()};
+    } catch (error) {
+      const failures = [String(error)];
+      const payload = {
+        apiConnected: false,
+        lastSyncTime: admin.firestore.FieldValue.serverTimestamp(),
+        recordsFetched: 0,
+        recordsImported: 0,
+        failures,
+        status: "failed",
+      };
+      await syncRef.set(payload, {merge: true});
+      return {...payload, lastSyncTime: startedAt.toISOString()};
+    }
   },
 );
 

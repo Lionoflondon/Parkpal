@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 
 import '../../admin/parkpal_admin_theme.dart';
@@ -14,15 +16,59 @@ class DtroAdminScreen extends StatefulWidget {
 class _DtroAdminScreenState extends State<DtroAdminScreen> {
   final _service = DtroLegalService();
   late Future<List<DtroLegalRecord>> _records;
+  late Future<Map<String, Object?>> _syncStatus;
+  bool _syncing = false;
 
   @override
   void initState() {
     super.initState();
     _records = _service.fetchLegalRecords();
+    _syncStatus = _fetchSyncStatus();
   }
 
   void _refresh() {
-    setState(() => _records = _service.fetchLegalRecords());
+    setState(() {
+      _records = _service.fetchLegalRecords();
+      _syncStatus = _fetchSyncStatus();
+    });
+  }
+
+  Future<Map<String, Object?>> _fetchSyncStatus() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('parkpal_dtro_sync_status')
+          .doc('live')
+          .get();
+      return snapshot.data() ?? const {};
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  Future<void> _syncLiveDtro() async {
+    setState(() => _syncing = true);
+    try {
+      final callable = FirebaseFunctions.instanceFor(region: 'europe-west2')
+          .httpsCallable('syncParkPalDtroLegalData');
+      final result = await callable.call<Map<Object?, Object?>>({});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('D-TRO sync ${result.data['status']}.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('D-TRO sync failed: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _syncing = false;
+          _records = _service.fetchLegalRecords();
+          _syncStatus = _fetchSyncStatus();
+        });
+      }
+    }
   }
 
   @override
@@ -44,12 +90,30 @@ class _DtroAdminScreenState extends State<DtroAdminScreen> {
                   icon: const Icon(Icons.refresh_outlined),
                   label: const Text('Refresh'),
                 ),
+                const SizedBox(width: 10),
+                FilledButton.icon(
+                  onPressed: _syncing ? null : _syncLiveDtro,
+                  icon: _syncing
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.sync_rounded),
+                  label: Text(_syncing ? 'Syncing…' : 'Sync D-TRO'),
+                ),
               ],
             ),
             const SizedBox(height: 8),
             Text(
               'Canonical legal-data foundation for Traffic Regulation Orders. D-TRO API credentials are not connected yet.',
               style: adminBody(color: ParkPalAdminColors.muted),
+            ),
+            const SizedBox(height: 18),
+            FutureBuilder<Map<String, Object?>>(
+              future: _syncStatus,
+              builder: (context, snapshot) {
+                return _DtroSyncStatusCard(status: snapshot.data ?? const {});
+              },
             ),
             const SizedBox(height: 18),
             Wrap(
@@ -78,6 +142,94 @@ class _DtroAdminScreenState extends State<DtroAdminScreen> {
           ],
         );
       },
+    );
+  }
+}
+
+class _DtroSyncStatusCard extends StatelessWidget {
+  const _DtroSyncStatusCard({required this.status});
+
+  final Map<String, Object?> status;
+
+  @override
+  Widget build(BuildContext context) {
+    final failures = (status['failures'] as List?)
+            ?.map((value) => value.toString())
+            .where((value) => value.isNotEmpty)
+            .toList(growable: false) ??
+        const <String>[];
+    final apiConnected = status['apiConnected'] == true;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: adminGlassDecoration(),
+      child: Wrap(
+        spacing: 14,
+        runSpacing: 14,
+        children: [
+          _DtroStatusMetric(
+            label: 'API connected',
+            value: apiConnected ? 'Yes' : 'No',
+            accent: apiConnected
+                ? ParkPalAdminColors.emerald
+                : ParkPalAdminColors.red,
+          ),
+          _DtroStatusMetric(
+            label: 'Last sync',
+            value: _shortStatus(status['lastSyncTime']),
+          ),
+          _DtroStatusMetric(
+            label: 'Records fetched',
+            value: '${status['recordsFetched'] ?? 0}',
+          ),
+          _DtroStatusMetric(
+            label: 'Records imported',
+            value: '${status['recordsImported'] ?? 0}',
+          ),
+          _DtroStatusMetric(
+            label: 'Failures',
+            value: failures.isEmpty ? '0' : '${failures.length}',
+            accent: failures.isEmpty
+                ? ParkPalAdminColors.cyan
+                : ParkPalAdminColors.red,
+          ),
+          if (failures.isNotEmpty)
+            SizedBox(
+              width: 520,
+              child: Text(
+                failures.join(' • '),
+                style: adminBody(color: ParkPalAdminColors.red, size: 12),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DtroStatusMetric extends StatelessWidget {
+  const _DtroStatusMetric({
+    required this.label,
+    required this.value,
+    this.accent = ParkPalAdminColors.cyan,
+  });
+
+  final String label;
+  final String value;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 190,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: adminBody(color: ParkPalAdminColors.muted, size: 12)),
+          const SizedBox(height: 6),
+          Text(value, style: adminHeading(size: 24).copyWith(color: accent)),
+        ],
+      ),
     );
   }
 }
@@ -114,7 +266,7 @@ class _DtroEmptyState extends StatelessWidget {
               style: adminHeading(size: 28)),
           const SizedBox(height: 8),
           Text(
-            'Once credentials are approved, ParkPal will store raw D-TRO JSON and normalized legal records here for Atlas and IRIS review.',
+            'Configure DTRO_API_BASE_URL and DTRO_API_KEY in ParkPal Functions to enable live sync. Manual/import-ready records remain supported as fallback.',
             textAlign: TextAlign.center,
             style: adminBody(color: ParkPalAdminColors.muted),
           ),
@@ -122,6 +274,12 @@ class _DtroEmptyState extends StatelessWidget {
       ),
     );
   }
+}
+
+String _shortStatus(Object? value) {
+  if (value == null) return 'Never';
+  final text = value.toString();
+  return text.length > 32 ? '${text.substring(0, 32)}…' : text;
 }
 
 class _DtroRecordRow extends StatelessWidget {
