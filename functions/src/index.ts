@@ -3,6 +3,7 @@ import {HttpsError, onCall} from "firebase-functions/v2/https";
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import {logger} from "firebase-functions";
 import {adapterFor} from "./aie_v2_adapters";
+import {defineSecret} from "firebase-functions/params";
 import {
   fetchDtroRecords,
   firestoreWritePayload,
@@ -17,6 +18,8 @@ import {
 
 admin.initializeApp();
 
+const DTRO_API_BASE_URL = defineSecret("DTRO_API_BASE_URL");
+const DTRO_API_KEY = defineSecret("DTRO_API_KEY");
 const db = admin.firestore();
 const councilsCollection = "parkpal_councils";
 const restrictionsCollection = "parkpal_restrictions";
@@ -25,6 +28,15 @@ const requestsCollection = "parkpal_aie_import_requests";
 const dtroRawOrdersCollection = "parkpal_dtro_raw_orders";
 const dtroLegalRecordsCollection = "parkpal_dtro_legal_records";
 const dtroSyncStatusCollection = "parkpal_dtro_sync_status";
+const adminUsersCollection = "parkpalAdminUsers";
+const allowedAdminRoles = new Set([
+  "superAdmin",
+  "admin",
+  "support",
+  "reviewer",
+  "pioneerManager",
+  "atlasManager",
+]);
 
 export const runParkPalAieIngestionJob = onSchedule(
   {
@@ -97,10 +109,20 @@ export const runParkPalAieCouncilIngestion = onCall(
 );
 
 export const syncParkPalDtroLegalData = onCall(
-  {region: "europe-west2"},
+  {
+    region: "europe-west2",
+    secrets: [DTRO_API_BASE_URL, DTRO_API_KEY],
+    enforceAppCheck: false,
+  },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "ParkPal Admin sign-in is required.");
+    }
+    await assertParkPalAdmin(request.auth.uid);
+    if (!request.app) {
+      logger.warn("D-TRO sync continuing without Firebase App Check for authenticated ParkPal Admin user.", {
+        uid: request.auth.uid,
+      });
     }
     const startedAt = new Date();
     const syncRef = db.collection(dtroSyncStatusCollection).doc("live");
@@ -194,6 +216,16 @@ export const syncParkPalDtroLegalData = onCall(
     }
   },
 );
+
+async function assertParkPalAdmin(uid: string): Promise<void> {
+  const snapshot = await db.collection(adminUsersCollection).doc(uid).get();
+  const data = snapshot.data();
+  const role = String(data?.role ?? "");
+  const status = String(data?.status ?? "");
+  if (!snapshot.exists || status !== "active" || !allowedAdminRoles.has(role)) {
+    throw new HttpsError("permission-denied", "This account is not authorised for ParkPal Admin.");
+  }
+}
 
 async function importCouncil(source: CouncilSource): Promise<{
   id: string;
