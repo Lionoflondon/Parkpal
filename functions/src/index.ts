@@ -126,9 +126,15 @@ export const syncParkPalDtroLegalData = onCall(
     }
     const startedAt = new Date();
     const syncRef = db.collection(dtroSyncStatusCollection).doc("live");
+    const apiBaseUrl = DTRO_API_BASE_URL.value();
+    const apiKey = DTRO_API_KEY.value();
+    logger.info("D-TRO sync credential presence check", {
+      hasApiBaseUrl: Boolean(apiBaseUrl?.trim()),
+      hasApiKey: Boolean(apiKey?.trim()),
+    });
     const credentials = {
-      apiBaseUrl: process.env.DTRO_API_BASE_URL,
-      apiKey: process.env.DTRO_API_KEY,
+      apiBaseUrl,
+      apiKey,
     };
     const credentialFailures = validateDtroCredentials(credentials);
     if (credentialFailures.length > 0) {
