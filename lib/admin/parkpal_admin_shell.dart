@@ -719,7 +719,8 @@ String _emptyCopyFor(ParkPalAdminSection section) {
     ParkPalAdminSection.councils => 'No council rule sources loaded yet.',
     ParkPalAdminSection.atlasIntelligence =>
       'No Atlas Intelligence Engine records visible yet.',
-    ParkPalAdminSection.dtroLegalData => 'Waiting for D-TRO API approval.',
+    ParkPalAdminSection.dtroLegalData =>
+      'Atlas Intelligence is waiting for live government data.',
     ParkPalAdminSection.signRepository => 'No sign records ready for review.',
     ParkPalAdminSection.roadRules => 'No road rules loaded yet.',
     ParkPalAdminSection.userChecks => 'No user parking checks recorded yet.',
@@ -773,15 +774,16 @@ _ModuleDefinition _definitionFor(ParkPalAdminSection section) {
         ],
       ),
     ParkPalAdminSection.dtroLegalData => const _ModuleDefinition(
-        title: 'D-TRO Legal Data',
+        title: 'Atlas Intelligence',
         description:
-            'Canonical legal restriction records from the D-TRO model, preserving raw legal JSON, authority, source, version, geometry and rule status.',
+            'Government Parking Intelligence Platform for live D-TRO sync status, source health, Atlas coverage and operational review.',
         collection: 'parkpal_dtro_legal_records',
         capabilities: [
-          'Legal orders',
-          'D-TRO regulation types',
-          'IRIS explanations',
-          'Version history'
+          'Government D-TRO',
+          'Council APIs',
+          'Sign Repository',
+          'Evidence Vault',
+          'IRIS reasoning'
         ],
       ),
     ParkPalAdminSection.signRepository => const _ModuleDefinition(
