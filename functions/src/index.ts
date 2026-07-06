@@ -7,6 +7,7 @@ import {defineSecret} from "firebase-functions/params";
 import {
   fetchDtroRecords,
   firestoreWritePayload,
+  loadDtroCredentialsFromEnv,
   normalizeDtroRecord,
   validateDtroCredentials,
 } from "./dtro_live";
@@ -20,6 +21,7 @@ admin.initializeApp();
 
 const DTRO_API_BASE_URL = defineSecret("DTRO_API_BASE_URL");
 const DTRO_API_KEY = defineSecret("DTRO_API_KEY");
+const DTRO_API_SECRET = defineSecret("DTRO_API_SECRET");
 const db = admin.firestore();
 const councilsCollection = "parkpal_councils";
 const restrictionsCollection = "parkpal_restrictions";
@@ -111,7 +113,8 @@ export const runParkPalAieCouncilIngestion = onCall(
 export const syncParkPalDtroLegalData = onCall(
   {
     region: "europe-west2",
-    secrets: [DTRO_API_BASE_URL, DTRO_API_KEY],
+    memory: "512MiB",
+    secrets: [DTRO_API_BASE_URL, DTRO_API_KEY, DTRO_API_SECRET],
     enforceAppCheck: false,
   },
   async (request) => {
@@ -126,16 +129,12 @@ export const syncParkPalDtroLegalData = onCall(
     }
     const startedAt = new Date();
     const syncRef = db.collection(dtroSyncStatusCollection).doc("live");
-    const apiBaseUrl = DTRO_API_BASE_URL.value();
-    const apiKey = DTRO_API_KEY.value();
+    const credentials = loadDtroCredentialsFromEnv();
     logger.info("D-TRO sync credential presence check", {
-      hasApiBaseUrl: Boolean(apiBaseUrl?.trim()),
-      hasApiKey: Boolean(apiKey?.trim()),
+      hasApiBaseUrl: Boolean(credentials.apiBaseUrl?.trim()),
+      hasApiKey: Boolean(credentials.apiKey?.trim()),
+      hasApiSecret: Boolean(credentials.apiSecret?.trim()),
     });
-    const credentials = {
-      apiBaseUrl,
-      apiKey,
-    };
     const credentialFailures = validateDtroCredentials(credentials);
     if (credentialFailures.length > 0) {
       const responsePayload = {
