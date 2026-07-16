@@ -129,7 +129,9 @@ class _ParkPalAtlasAdminScreenState extends State<ParkPalAtlasAdminScreen> {
                   child: InspectorFindingCard(finding: finding),
                 ),
               if (data.findings.isEmpty)
-                const _EmptyPanel('No inspector recommendations yet.'),
+                const _EmptyPanel(
+                  'IRIS Inspector has no recommendations. Coverage, stale-data and conflict alerts are routed here when action is needed.',
+                ),
             ],
           );
         },

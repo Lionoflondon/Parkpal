@@ -70,8 +70,8 @@ class DisabledCurrentLocationProvider implements CurrentLocationProvider {
 class ParkingSignRecognitionService {
   const ParkingSignRecognitionService();
 
-  Future<void> recogniseSignPlaceholder() async {
-    // Intentionally empty. Camera/OCR/AI recognition is not implemented yet.
+  Future<void> prepareSignRecognition() async {
+    // Reserved architecture hook for future camera/OCR/AI recognition.
   }
 }
 

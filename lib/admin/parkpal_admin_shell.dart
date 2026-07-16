@@ -651,13 +651,13 @@ class _EmptyState extends StatelessWidget {
       decoration: adminGlassDecoration(),
       child: Column(
         children: [
-          const Icon(Icons.manage_search_outlined,
-              color: ParkPalAdminColors.cyan, size: 38),
+          Icon(_emptyIconFor(message),
+              color: ParkPalAdminColors.cyan, size: 40),
           const SizedBox(height: 12),
           Text(message, style: adminHeading(size: 26)),
           const SizedBox(height: 6),
           Text(
-            'ParkPal Firestore is connected. Intelligence records will appear here once the repository has data for review.',
+            _emptyDetailFor(message),
             textAlign: TextAlign.center,
             style: adminBody(color: ParkPalAdminColors.muted),
           ),
@@ -716,24 +716,83 @@ bool _canViewSection(String role, ParkPalAdminSection section) {
 
 String _emptyCopyFor(ParkPalAdminSection section) {
   return switch (section) {
-    ParkPalAdminSection.councils => 'No council rule sources loaded yet.',
-    ParkPalAdminSection.atlasIntelligence =>
-      'No Atlas Intelligence Engine records visible yet.',
+    ParkPalAdminSection.councils => 'Council source queue is clear.',
+    ParkPalAdminSection.atlasIntelligence => 'Atlas import queue is clear.',
     ParkPalAdminSection.dtroLegalData =>
       'Atlas Intelligence is waiting for live government data.',
-    ParkPalAdminSection.signRepository => 'No sign records ready for review.',
-    ParkPalAdminSection.roadRules => 'No road rules loaded yet.',
-    ParkPalAdminSection.userChecks => 'No user parking checks recorded yet.',
-    ParkPalAdminSection.evidenceVault => 'No evidence records saved yet.',
-    ParkPalAdminSection.appealSupport => 'No fine support cases yet.',
+    ParkPalAdminSection.signRepository => 'No sign captures require review.',
+    ParkPalAdminSection.roadRules => 'No road-rule updates require action.',
+    ParkPalAdminSection.userChecks => 'No parking checks require review.',
+    ParkPalAdminSection.evidenceVault => 'Evidence vault is ready.',
+    ParkPalAdminSection.appealSupport => 'No fine support cases are open.',
     ParkPalAdminSection.reports => 'No user reports awaiting review.',
     ParkPalAdminSection.irisReview => 'No IRIS review items pending.',
     ParkPalAdminSection.coverageForecast =>
-      'No coverage forecast records available yet.',
-    ParkPalAdminSection.adminUsers => 'No admin user rows visible.',
-    ParkPalAdminSection.settings => 'No settings records visible.',
-    ParkPalAdminSection.dashboard => 'No dashboard records visible.',
+      'Coverage forecast has no priority roads.',
+    ParkPalAdminSection.adminUsers => 'No additional admin users found.',
+    ParkPalAdminSection.settings => 'Operational settings are ready.',
+    ParkPalAdminSection.dashboard => 'Dashboard metrics are warming up.',
   };
+}
+
+String _emptyDetailFor(String message) {
+  if (message.contains('Council')) {
+    return 'Connect council sources from Atlas Intelligence to begin monitoring official rules, D-TRO changes and source health.';
+  }
+  if (message.contains('Atlas')) {
+    return 'Run an Atlas import or sync D-TRO data to populate import logs, change history and conflict diagnostics.';
+  }
+  if (message.contains('government')) {
+    return 'Use Sync Now from Atlas Intelligence when D-TRO credentials are configured. Secrets and tokens are never exposed in Admin.';
+  }
+  if (message.contains('sign')) {
+    return 'Verified user and Pioneer sign captures are routed here for moderation, confidence scoring and evidence linking.';
+  }
+  if (message.contains('road-rule')) {
+    return 'Road-level parking rules will appear when Atlas or approved sign evidence creates actionable updates.';
+  }
+  if (message.contains('parking checks')) {
+    return 'Low-confidence user checks and demand hotspots are routed here so IRIS reviewers can improve coverage.';
+  }
+  if (message.contains('Evidence')) {
+    return 'Time-stamped searches, sign evidence and appeal-ready records will appear as users build their evidence history.';
+  }
+  if (message.contains('fine')) {
+    return 'Fine and appeal support cases are routed here when users request help assembling ParkPal evidence.';
+  }
+  if (message.contains('reports')) {
+    return 'Reports for missing signs, damaged signs and temporary restrictions are routed here for moderation.';
+  }
+  if (message.contains('IRIS')) {
+    return 'Uncertain answers, source conflicts and stale records are routed here for human review before becoming trusted intelligence.';
+  }
+  if (message.contains('Coverage')) {
+    return 'Priority roads and Pioneer mission recommendations will appear when Atlas has enough borough coverage data.';
+  }
+  if (message.contains('admin')) {
+    return 'The signed-in Super Admin is active. Invite or approve additional ParkPal operators when needed.';
+  }
+  if (message.contains('settings')) {
+    return 'Operational controls are managed from Settings and autosaved to ParkPal Firestore when configured.';
+  }
+  return 'ParkPal Firestore is connected and this module is ready for operational data.';
+}
+
+IconData _emptyIconFor(String message) {
+  if (message.contains('Council')) return Icons.account_balance_outlined;
+  if (message.contains('Atlas')) return Icons.hub_outlined;
+  if (message.contains('government')) return Icons.policy_outlined;
+  if (message.contains('sign')) return Icons.traffic_outlined;
+  if (message.contains('road-rule')) return Icons.alt_route_outlined;
+  if (message.contains('parking checks')) return Icons.fact_check_outlined;
+  if (message.contains('Evidence')) return Icons.verified_outlined;
+  if (message.contains('fine')) return Icons.gavel_outlined;
+  if (message.contains('reports')) return Icons.report_problem_outlined;
+  if (message.contains('IRIS')) return Icons.psychology_outlined;
+  if (message.contains('Coverage')) return Icons.auto_graph_outlined;
+  if (message.contains('admin')) return Icons.admin_panel_settings_outlined;
+  if (message.contains('settings')) return Icons.settings_outlined;
+  return Icons.manage_search_outlined;
 }
 
 class _ModuleDefinition {

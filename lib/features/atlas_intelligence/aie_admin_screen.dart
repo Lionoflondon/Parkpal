@@ -258,7 +258,7 @@ class _AieAdminScreenState extends State<AieAdminScreen> {
                   final sources = snapshot.data ?? const <AieSource>[];
                   if (sources.isEmpty) {
                     return const _EmptyPanel(
-                      'No AIE sources connected yet. Add an official source above and run a manual import.',
+                      'No official sources connected. Add a council source above, then run an Atlas import.',
                     );
                   }
                   return Column(
@@ -438,7 +438,9 @@ class _TwoColumnLists extends StatelessWidget {
         final logs = _Section(
           title: 'Import logs',
           child: summary.recentLogs.isEmpty
-              ? const _EmptyPanel('No import logs yet.')
+              ? const _EmptyPanel(
+                  'Import log is clear. Run an Atlas import to record source health, parser diagnostics and checksums.',
+                )
               : Column(
                   children: [
                     for (final log in summary.recentLogs)
@@ -454,7 +456,9 @@ class _TwoColumnLists extends StatelessWidget {
         final changes = _Section(
           title: 'Change history',
           child: summary.recentChanges.isEmpty
-              ? const _EmptyPanel('No detected changes yet.')
+              ? const _EmptyPanel(
+                  'No source changes detected. Atlas will record restriction, geometry and confidence changes after imports.',
+                )
               : Column(
                   children: [
                     for (final change in summary.recentChanges)
@@ -643,7 +647,7 @@ class _AieV2SourcesSection extends StatelessWidget {
           final sources = snapshot.data ?? const <Map<String, Object?>>[];
           if (sources.isEmpty) {
             return const _EmptyPanel(
-              'No parkpal_councils registry sources visible yet.',
+              'Council registry has no active source connectors. Add approved council feeds before running AIE v2.',
             );
           }
           return Column(
@@ -751,7 +755,9 @@ class _AieV2RunsSection extends StatelessWidget {
         builder: (context, snapshot) {
           final runs = snapshot.data ?? const <Map<String, Object?>>[];
           if (runs.isEmpty) {
-            return const _EmptyPanel('No AIE v2 import runs yet.');
+            return const _EmptyPanel(
+              'No AIE v2 import runs recorded. Connector diagnostics will appear after the first sync.',
+            );
           }
           return Column(
             children: [

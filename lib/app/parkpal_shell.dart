@@ -87,8 +87,10 @@ class _ParkPalShellState extends State<ParkPalShell> {
       ParkPalPlatformRoutes.iris => const ScanComingSoonScreen(),
       ParkPalPlatformRoutes.savedPlaces => const ParkingHistoryScreen(),
       ParkPalPlatformRoutes.account => const AccountScreen(),
-      ParkPalPlatformRoutes.settings => const AccountScreen(),
-      _ => _ApplicationPlaceholder(route: route),
+      ParkPalPlatformRoutes.settings => const AccountScreen(
+          mode: AccountScreenMode.settings,
+        ),
+      _ => _ApplicationSection(route: route),
     };
   }
 
@@ -285,8 +287,8 @@ class _RailButton extends StatelessWidget {
   }
 }
 
-class _ApplicationPlaceholder extends StatelessWidget {
-  const _ApplicationPlaceholder({required this.route});
+class _ApplicationSection extends StatelessWidget {
+  const _ApplicationSection({required this.route});
 
   final String route;
 
@@ -327,7 +329,7 @@ class _ApplicationPlaceholder extends StatelessWidget {
               const SizedBox(width: 16),
               Expanded(
                 child: Text(
-                  'This app area is ready for the next ParkPal product pass. No marketing content is shown inside the authenticated platform.',
+                  _emptyStateFor(destination.route),
                   style: ParkPalText.body(
                     color: ParkPalColors.graphite,
                     height: 1.5,
@@ -340,6 +342,23 @@ class _ApplicationPlaceholder extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  String _emptyStateFor(String route) {
+    return switch (route) {
+      ParkPalPlatformRoutes.trips =>
+        'You haven’t saved any trips yet. Plan a journey or check a road to begin.',
+      ParkPalPlatformRoutes.vehicles =>
+        'No vehicles saved yet. Add a vehicle to improve permit and restriction context.',
+      ParkPalPlatformRoutes.reports =>
+        'No reports submitted. Report unclear signs, missing signs or temporary suspensions when you spot them.',
+      ParkPalPlatformRoutes.appPioneer =>
+        'No Pioneer missions assigned. Verified mapping missions unlock as nearby roads need review.',
+      ParkPalPlatformRoutes.notifications =>
+        'No notifications. Parking alerts, report outcomes and evidence updates are enabled for future activity.',
+      _ =>
+        'No records yet. Start with a parking check to build your ParkPal intelligence history.',
+    };
   }
 }
 
@@ -364,7 +383,7 @@ const _appDestinations = [
     route: ParkPalPlatformRoutes.dashboard,
     label: 'Dashboard',
     shortLabel: 'Home',
-    icon: Icons.dashboard_rounded,
+    icon: Icons.home_rounded,
     description: 'Your live ParkPal overview, recent checks and evidence.',
   ),
   _AppDestination(
@@ -378,7 +397,7 @@ const _appDestinations = [
     route: ParkPalPlatformRoutes.find,
     label: 'Find Parking',
     shortLabel: 'Find',
-    icon: Icons.search_rounded,
+    icon: Icons.travel_explore_rounded,
     description: 'Search a road or location before you park.',
   ),
   _AppDestination(
@@ -413,7 +432,7 @@ const _appDestinations = [
     route: ParkPalPlatformRoutes.reports,
     label: 'Reports',
     shortLabel: 'Reports',
-    icon: Icons.flag_rounded,
+    icon: Icons.report_problem_rounded,
     description: 'Report changed signs, unclear rules or missing data.',
   ),
   _AppDestination(
@@ -432,9 +451,9 @@ const _appDestinations = [
   ),
   _AppDestination(
     route: ParkPalPlatformRoutes.account,
-    label: 'Account',
-    shortLabel: 'Account',
-    icon: Icons.person_rounded,
+    label: 'Profile',
+    shortLabel: 'Profile',
+    icon: Icons.account_circle_rounded,
     description: 'Your profile, privacy and evidence settings.',
   ),
   _AppDestination(
