@@ -2,6 +2,8 @@ import 'package:test/test.dart';
 
 import 'package:parkpal/data/firestore_collections.dart';
 import 'package:parkpal/data/storage_paths.dart';
+import 'package:parkpal/features/atlas_intelligence/aie_models.dart';
+import 'package:parkpal/features/payments/parkpal_payment_schema.dart';
 
 void main() {
   test('core collection names are stable', () {
@@ -12,6 +14,16 @@ void main() {
     expect(ParkPalCollections.contributors, 'parkpal_contributors');
     expect(ParkPalCollections.queries, 'parkpal_queries');
     expect(ParkPalCollections.councils, 'parkpal_councils');
+    expect(
+      AieCollections.canonicalIntelligence,
+      'parkpal_atlas_intelligence_records',
+    );
+    expect(
+      ParkPalPaymentCollections.customers,
+      'parkpalPaymentCustomers',
+    );
+    expect(ParkPalPaymentCollections.subscriptions, 'parkpalSubscriptions');
+    expect(ParkPalPaymentCollections.ledger, 'parkpalPaymentLedger');
   });
 
   test('storage paths match the agreed Firebase layout', () {

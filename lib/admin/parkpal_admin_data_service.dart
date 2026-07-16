@@ -22,6 +22,7 @@ class ParkPalAdminCollections {
   static const atlasIntelligenceSources = 'parkpal_aie_sources';
   static const atlasIntelligenceImportLogs = 'parkpal_aie_import_logs';
   static const atlasIntelligenceConflicts = 'parkpal_aie_conflicts';
+  static const atlasIntelligenceRecords = 'parkpal_atlas_intelligence_records';
 }
 
 class ParkPalAdminAccess {
@@ -289,7 +290,7 @@ class ParkPalAdminDataService {
           field: 'verificationStatus',
           value: 'verified',
         ),
-        _count(firestore, ParkPalAdminCollections.councils),
+        _count(firestore, ParkPalAdminCollections.atlasIntelligenceRecords),
         _count(firestore, ParkPalAdminCollections.evidence),
         _count(firestore, ParkPalAdminCollections.appealSupport),
         _count(firestore, ParkPalAdminCollections.contributors),

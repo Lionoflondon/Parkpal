@@ -124,6 +124,13 @@ class ParkingIRIS {
   }
 
   ParkingConfidence _baseConfidenceForEvidence(ParkingEvidence evidence) {
+    if (evidence.source == ParkingEvidenceSource.adminVerifiedRule &&
+        evidence.verified) {
+      return const ParkingConfidence(
+        score: 1,
+        reason: 'Admin-verified Atlas rule: 100%.',
+      );
+    }
     if (evidence.source == ParkingEvidenceSource.councilData &&
         evidence.verified) {
       return const ParkingConfidence(

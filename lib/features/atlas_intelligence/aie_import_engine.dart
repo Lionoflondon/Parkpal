@@ -377,6 +377,17 @@ class AieImportEngine {
             );
           }
 
+          final importedAt = DateTime.now().toUtc();
+          final canonical = AtlasCanonicalIntelligenceRecord.fromRestriction(
+            restriction: restriction,
+            roadId: roadId,
+            importBatchId: batchId,
+            importedAt: importedAt,
+            conflictId: conflictId,
+            sourcePriority: _sourcePriority(source),
+          );
+          await _writeCanonicalRecord(firestore, canonical);
+
           final nextRules = [
             ...existingRules.where((rule) => rule.ruleId != restriction.ruleId),
             restriction,
@@ -404,6 +415,7 @@ class AieImportEngine {
             'country': 'UK',
             'currentParkingRules':
                 nextRules.map((rule) => rule.toMap()).toList(growable: false),
+            'canonicalRecordIds': FieldValue.arrayUnion([canonical.recordId]),
             'previousVersion': previousVersion,
             'version': version,
             'confidence': conflictId == null
@@ -414,6 +426,17 @@ class AieImportEngine {
             'lastImported': FieldValue.serverTimestamp(),
             'lastCouncilUpdate': FieldValue.serverTimestamp(),
             'lastVerified': roadSnapshot.data()?['lastVerified'],
+            'sourcePriority': canonical.sourcePriority,
+            'sourceFreshness': canonical.sourceFreshness,
+            'verificationState': canonical.verificationState.name,
+            'customerSafetyState': canonical.customerSafetyState.name,
+            'customerWarnings': canonical.warnings,
+            'effectiveStart': canonical.effectiveStart == null
+                ? null
+                : Timestamp.fromDate(canonical.effectiveStart!),
+            'effectiveEnd': canonical.effectiveEnd == null
+                ? null
+                : Timestamp.fromDate(canonical.effectiveEnd!),
             'roadHealth': _roadHealth(conflictId == null, nextRules.length),
             'coverageScore': nextRules.isEmpty ? 0 : 100,
             'relatedEvidence': FieldValue.arrayUnion([batchId]),
@@ -1006,9 +1029,12 @@ class AieImportEngine {
         ),
         _count(
           firestore,
-          AieCollections.atlasRoads,
-          field: 'confidence',
-          value: AieConfidence.limited.name,
+          AieCollections.canonicalIntelligence,
+          field: 'customerSafetyState',
+          values: [
+            AtlasCustomerSafetyState.likely.name,
+            AtlasCustomerSafetyState.incompleteCoverage.name,
+          ],
         ),
         _count(firestore, AieCollections.atlasRoads,
             field: 'stale', value: true),
@@ -1124,9 +1150,35 @@ class AieImportEngine {
       'state': AieConflictState.pending.name,
       'sourceId': incoming.sourceId,
       'sourceUrl': incoming.sourceUrl,
+      'customerOutputSafety': signConflict ? 'withheld' : 'degraded',
+      'competingValues': {
+        'parkingAllowed': {
+          'incoming': incoming.parkingAllowed,
+          'existing': existingRule?.parkingAllowed,
+          'verifiedSigns': signs.docs
+              .map((doc) => doc.data()['parkingAllowed'])
+              .where((value) => value != null)
+              .toList(),
+        },
+        'restrictionType': {
+          'incoming': incoming.restrictionType,
+          'existing': existingRule?.restrictionType,
+        },
+        'activeHours': {
+          'incoming': incoming.activeHours,
+          'existing': existingRule?.activeHours,
+        },
+      },
       'incomingRule': incoming.toMap(),
       'existingRule': existingRule?.toMap(),
       'verifiedSignIds': signs.docs.map((doc) => doc.id).toList(),
+      'confidenceDifference': existingRule == null ? 0 : 55,
+      'freshnessDifference': 'incoming_official_import_current',
+      'recommendedWinner':
+          signConflict ? 'verified_field_evidence' : 'newer_official_source',
+      'recommendationReason': signConflict
+          ? 'Verified ParkPal sign evidence disagrees with imported official data; require admin review before customer certainty.'
+          : 'Incoming official source is fresher than existing Atlas rule but remains degraded until reviewed.',
       'conflictNotes':
           'Official source conflicts with existing Atlas intelligence or verified field evidence. Verified data was not overwritten silently.',
       'createdAt': FieldValue.serverTimestamp(),
@@ -1212,6 +1264,31 @@ class AieImportEngine {
       'summary': _changeSummary(changeType, restriction),
       'createdAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  Future<void> _writeCanonicalRecord(
+    FirebaseFirestore firestore,
+    AtlasCanonicalIntelligenceRecord record,
+  ) async {
+    final ref = firestore
+        .collection(AieCollections.canonicalIntelligence)
+        .doc(record.recordId);
+    final snapshot = await ref.get();
+    if (snapshot.exists) {
+      await ref.collection('versions').doc(record.importBatchId).set({
+        'recordId': record.recordId,
+        'snapshot': snapshot.data(),
+        'timestamp': FieldValue.serverTimestamp(),
+        'sourceId': record.sourceId,
+        'sourceUrl': record.sourceUrl,
+        'reason': 'atlas_import_reconciliation',
+      });
+    }
+    await ref.set({
+      ...record.toMap(),
+      'lastImportedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   Future<void> _writeImportLog(
@@ -1491,6 +1568,27 @@ class AieImportEngine {
   int _roadHealth(bool conflictFree, int ruleCount) {
     final base = ruleCount > 0 ? 88 : 35;
     return conflictFree ? base : 45;
+  }
+
+  int _sourcePriority(AieSource source) {
+    return switch (source.sourceType) {
+      AieSourceType.trafficRegulationOrder => 100,
+      AieSourceType.openDataApi => 96,
+      AieSourceType.controlledParkingZone => 94,
+      AieSourceType.temporaryTrafficOrder ||
+      AieSourceType.parkingSuspension ||
+      AieSourceType.roadClosure =>
+        92,
+      AieSourceType.permitChange ||
+      AieSourceType.bayChange ||
+      AieSourceType.loadingRestriction ||
+      AieSourceType.busLaneChange ||
+      AieSourceType.schoolStreet =>
+        90,
+      AieSourceType.councilParkingPage => 82,
+      AieSourceType.consultation => 55,
+      AieSourceType.cleanAirZone || AieSourceType.lowTrafficNeighbourhood => 70,
+    };
   }
 
   DateTime _nextCheck(AieSource source) {

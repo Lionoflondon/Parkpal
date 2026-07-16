@@ -251,6 +251,17 @@ service cloud.firestore {
       }
     }
 
+    match /parkpal_atlas_intelligence_records/{recordId} {
+      allow read: if true;
+      allow create, update: if isParkPalAdmin();
+      allow delete: if isAdmin();
+      match /versions/{versionId} {
+        allow read: if isParkPalAdmin();
+        allow create: if isParkPalAdmin();
+        allow update, delete: if false;
+      }
+    }
+
     match /parkpalEvidenceRecords/{recordId} {
       allow read, create, update: if isParkPalAdmin();
       allow delete: if isAdmin();
@@ -274,6 +285,41 @@ service cloud.firestore {
     match /parkpalOperationalSettings/{settingsId} {
       allow read, create, update: if isParkPalAdmin();
       allow delete: if false;
+    }
+
+    match /parkpalPaymentCustomers/{customerId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if false;
+    }
+
+    match /parkpalSubscriptions/{subscriptionId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if false;
+    }
+
+    match /parkpalInvoices/{invoiceId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if false;
+    }
+
+    match /parkpalPaymentEvents/{eventId} {
+      allow read, create: if isParkPalAdmin();
+      allow update, delete: if false;
+    }
+
+    match /parkpalPaymentLedger/{entryId} {
+      allow read, create: if isParkPalAdmin();
+      allow update, delete: if false;
+    }
+
+    match /parkpalPaymentProviderConfig/{configId} {
+      allow read, create, update: if isParkPalAdmin();
+      allow delete: if false;
+    }
+
+    match /parkpalPaymentAudit/{auditId} {
+      allow read, create: if isParkPalAdmin();
+      allow update, delete: if false;
     }
 
     match /{document=**} {

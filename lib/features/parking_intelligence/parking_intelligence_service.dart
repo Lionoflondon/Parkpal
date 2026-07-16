@@ -23,6 +23,7 @@ class ParkingIntelligenceService implements ParkingIntelligenceEvaluator {
     if (query.isEmpty) return ParkingLookupResult.unknown();
 
     final evidence = <ParkingEvidence>[
+      ...await _canonicalAtlasEvidence(query),
       ...await _signEvidence(query),
       ...await _roadEvidence(query),
       ...await _zoneEvidence(query),
@@ -60,6 +61,72 @@ class ParkingIntelligenceService implements ParkingIntelligenceEvaluator {
       evidenceSource: selected.source,
       evidenceReason: confidence.reason,
     );
+  }
+
+  Future<List<ParkingEvidence>> _canonicalAtlasEvidence(String query) async {
+    final normalized = _normalize(query);
+    var snapshot = await _safeQuery(() => _firestore
+        .collection(AieCollections.canonicalIntelligence)
+        .where('normalizedRoadName', isEqualTo: normalized)
+        .limit(10)
+        .get());
+    snapshot ??= await _safeQuery(() => _firestore
+        .collection(AieCollections.canonicalIntelligence)
+        .where('roadName', isEqualTo: query)
+        .limit(10)
+        .get());
+    if (snapshot == null) return const [];
+
+    return snapshot.docs.map((doc) {
+      final data = doc.data();
+      final safety = data['customerSafetyState'] as String?;
+      final verification = data['verificationState'] as String?;
+      final warnings = (data['warnings'] as List?)
+              ?.map((value) => value.toString())
+              .toList(growable: false) ??
+          const <String>[];
+      final stale = safety == AtlasCustomerSafetyState.stale.name ||
+          _isStale(_date(data['lastImportedAt']) ?? _date(data['updatedAt']));
+      final conflict = safety == AtlasCustomerSafetyState.conflicting.name ||
+          verification == AtlasVerificationState.conflict.name ||
+          ((data['conflictIds'] as List?)?.isNotEmpty ?? false);
+      final sourceUnavailable =
+          safety == AtlasCustomerSafetyState.sourceUnavailable.name;
+      return ParkingEvidence(
+        source: ParkingEvidenceSource.adminVerifiedRule,
+        data: {
+          ...data,
+          'source': 'atlas_canonical_intelligence',
+          'sourceHealth': sourceUnavailable
+              ? 'offline'
+              : conflict
+                  ? 'warning'
+                  : stale
+                      ? 'stale'
+                      : 'healthy',
+          'warnings': warnings,
+        },
+        summary: _canonicalSummary(data, safety, warnings),
+        verified: verification == AtlasVerificationState.official.name ||
+            verification == AtlasVerificationState.verifiedPlus.name ||
+            safety == AtlasCustomerSafetyState.confirmed.name,
+        sourceConfidence:
+            ((data['confidence'] as num?)?.toDouble() ?? 0).clamp(0, 1),
+        lastUpdatedAt: _date(data['lastVerifiedAt']) ??
+            _date(data['lastImportedAt']) ??
+            _date(data['updatedAt']),
+        conflict: conflict,
+        geometryValid: _validLatLng(data['latitude'], data['longitude']) ||
+            ((data['geometry'] as Map?)?.isNotEmpty ?? false),
+        sourceHealth: sourceUnavailable
+            ? 'offline'
+            : conflict
+                ? 'warning'
+                : stale
+                    ? 'stale'
+                    : 'healthy',
+      );
+    }).toList(growable: false);
   }
 
   Future<List<ParkingEvidence>> _signEvidence(String query) async {
@@ -270,6 +337,11 @@ class ParkingIntelligenceService implements ParkingIntelligenceEvaluator {
   }
 
   PaymentRequiredStatus _paymentFromEvidence(ParkingEvidence evidence) {
+    final price = evidence.data['price'];
+    if (price is num && price > 0) return PaymentRequiredStatus.yes;
+    if (evidence.data['chargingPeriod'] != null) {
+      return PaymentRequiredStatus.yes;
+    }
     if (evidence.data['permitRequired'] == true) {
       return PaymentRequiredStatus.yes;
     }
@@ -287,6 +359,7 @@ class ParkingIntelligenceService implements ParkingIntelligenceEvaluator {
       return 'High';
     }
     if (canPark == CanParkStatus.yes) return 'Low';
+    if (evidence.conflict || evidence.sourceHealth == 'stale') return 'Medium';
     return 'Unknown';
   }
 
@@ -305,6 +378,14 @@ class ParkingIntelligenceService implements ParkingIntelligenceEvaluator {
             .join(', ') ??
         'unknown days';
     final summary = selected.summary;
+    final warnings = (selected.data['warnings'] as List?)
+            ?.map((value) => value.toString())
+            .where((value) => value.trim().isNotEmpty)
+            .toList(growable: false) ??
+        const <String>[];
+    final freshness = selected.lastUpdatedAt == null
+        ? 'Freshness unknown.'
+        : 'Last updated ${selected.lastUpdatedAt!.toUtc().toIso8601String().split('T').first}.';
     final status = switch (canPark) {
       CanParkStatus.yes => 'Parking is permitted by the selected evidence.',
       CanParkStatus.no => 'Parking is not permitted by the selected evidence.',
@@ -312,7 +393,50 @@ class ParkingIntelligenceService implements ParkingIntelligenceEvaluator {
         'ParkPal cannot make a yes/no parking claim from this evidence.',
     };
 
-    return '$summary\nRestriction window: $timeWindow on $activeDays.\nCurrent time is $time on $day.\n$status';
+    return [
+      summary,
+      'Restriction window: $timeWindow on $activeDays.',
+      'Current time is $time on $day.',
+      freshness,
+      status,
+      if (warnings.isNotEmpty) 'Warnings: ${warnings.join(' ')}',
+    ].join('\n');
+  }
+
+  String _canonicalSummary(
+    Map<String, Object?> data,
+    String? safety,
+    List<String> warnings,
+  ) {
+    final type = data['restrictionType'] as String? ?? 'Parking restriction';
+    final hours = data['activeHours'] as String? ?? 'Unknown hours';
+    final maxStay = data['maxStayMinutes'];
+    final permit = data['permitRequired'] == true
+        ? ' Permit or vehicle eligibility may be required.'
+        : '';
+    final charge = data['price'] is num
+        ? ' Charging information is available for this restriction.'
+        : data['chargingPeriod'] != null
+            ? ' Charging period: ${data['chargingPeriod']}.'
+            : '';
+    final prefix = switch (safety) {
+      'confirmed' => 'Confirmed Atlas intelligence.',
+      'likely' => 'Likely Atlas intelligence.',
+      'conflicting' => 'Conflicting Atlas intelligence.',
+      'stale' => 'Stale Atlas intelligence.',
+      'incompleteCoverage' => 'Incomplete Atlas coverage.',
+      'sourceUnavailable' => 'Atlas source unavailable.',
+      _ => 'Atlas intelligence.',
+    };
+    return [
+      '$prefix $type applies during $hours.$permit$charge',
+      if (maxStay is num) 'Maximum stay: ${maxStay.toInt()} minutes.',
+      if (data['noReturnMinutes'] is num)
+        'No return: ${(data['noReturnMinutes'] as num).toInt()} minutes.',
+      if (data['suspensionActive'] == true)
+        'Temporary suspension is active; do not rely on normal parking rules.',
+      if (warnings.isNotEmpty) warnings.join(' '),
+    ].join(' ');
   }
 
   String _normalize(String value) {
@@ -356,6 +480,11 @@ class ParkingIntelligenceService implements ParkingIntelligenceEvaluator {
       return 'warning';
     }
     return 'healthy';
+  }
+
+  bool _isStale(DateTime? value) {
+    if (value == null) return false;
+    return DateTime.now().difference(value).inDays > 180;
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>?> _safeQuery(
