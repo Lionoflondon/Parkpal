@@ -3,9 +3,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../data/firestore_collections.dart';
 import '../atlas_intelligence/aie_models.dart';
 import '../parking_query/parking_lookup_result.dart';
+import 'iris_parking_assistant.dart';
 import 'parking_intelligence_models.dart';
 
-class ParkingIntelligenceService {
+class ParkingIntelligenceService implements ParkingIntelligenceEvaluator {
   ParkingIntelligenceService({
     required FirebaseFirestore firestore,
     ParkingIRIS iris = const ParkingIRIS(),
@@ -15,6 +16,7 @@ class ParkingIntelligenceService {
   final FirebaseFirestore _firestore;
   final ParkingIRIS _iris;
 
+  @override
   Future<ParkingLookupResult> evaluate(
       ParkingIntelligenceContext context) async {
     final query = context.queryText.trim();
@@ -85,6 +87,15 @@ class ParkingIntelligenceService {
             data['rawText'] as String? ??
             'Parking sign evidence found.',
         verified: verified || data['confidenceState'] == 'verified_plus',
+        sourceConfidence: (data['confidenceScore'] as num?)?.toDouble(),
+        lastUpdatedAt: _date(data['updatedAt']) ??
+            _date(data['verifiedAt']) ??
+            _date(data['capturedAt']),
+        conflict: data['confidenceState'] == 'conflict' ||
+            data['verificationStatus'] == 'disputed',
+        geometryValid: _validLatLng(data['latitude'], data['longitude']) ||
+            data['geoPoint'] != null,
+        sourceHealth: _sourceHealth(data),
       );
     }).toList(growable: false);
   }
@@ -105,6 +116,14 @@ class ParkingIntelligenceService {
                   'Road-level parking intelligence found.',
               seed: true,
               verified: doc.data()['confidenceScore'] == 1,
+              sourceConfidence:
+                  (doc.data()['confidenceScore'] as num?)?.toDouble(),
+              lastUpdatedAt: _date(doc.data()['updatedAt']) ??
+                  _date(doc.data()['lastVerifiedAt']),
+              conflict: doc.data()['confidenceState'] == 'conflict',
+              geometryValid: doc.data()['geoBounds'] != null ||
+                  doc.data()['centrePoint'] != null,
+              sourceHealth: _sourceHealth(doc.data()),
             ))
         .toList(growable: false);
   }
@@ -123,6 +142,12 @@ class ParkingIntelligenceService {
               summary: doc.data()['rulesSummary'] as String? ??
                   'Zone parking intelligence found.',
               verified: doc.data()['source'] == 'council_data',
+              sourceConfidence:
+                  (doc.data()['confidenceScore'] as num?)?.toDouble(),
+              lastUpdatedAt: _date(doc.data()['updatedAt']),
+              conflict: doc.data()['confidenceState'] == 'conflict',
+              geometryValid: doc.data()['geoPolygon'] != null,
+              sourceHealth: _sourceHealth(doc.data()),
             ))
         .toList(growable: false);
   }
@@ -140,6 +165,11 @@ class ParkingIntelligenceService {
               data: doc.data(),
               summary: 'Council metadata found. Road-level rules still needed.',
               verified: true,
+              sourceConfidence:
+                  (doc.data()['confidenceScore'] as num?)?.toDouble(),
+              lastUpdatedAt: _date(doc.data()['lastImportedAt']) ??
+                  _date(doc.data()['updatedAt']),
+              sourceHealth: _sourceHealth(doc.data()),
             ))
         .toList(growable: false);
   }
@@ -162,6 +192,9 @@ class ParkingIntelligenceService {
             data['description'] as String? ?? 'Verified user report found.',
         verified: true,
         reportCount: snapshot.docs.length,
+        lastUpdatedAt: _date(data['updatedAt']) ?? _date(data['createdAt']),
+        geometryValid: data['geoPoint'] != null,
+        sourceHealth: _sourceHealth(data),
       ),
     ];
   }
@@ -195,11 +228,23 @@ class ParkingIntelligenceService {
           'schoolStreet': firstRule['schoolStreet'],
           'confidencePercent': data['confidencePercent'],
           'source': 'atlas_intelligence_engine',
+          'lastImported': data['lastImported'],
+          'activeConflicts': data['activeConflicts'],
+          'roadHealth': data['roadHealth'],
         },
         summary: firstRule['restrictionType'] as String? ??
             'Official Atlas Intelligence rule found.',
         verified: data['confidence'] == AieConfidence.official.name ||
             data['confidence'] == AieConfidence.verifiedPlus.name,
+        sourceConfidence:
+            ((data['confidencePercent'] as num?)?.toDouble() ?? 0) / 100,
+        lastUpdatedAt: _date(data['lastImported']) ?? _date(data['updatedAt']),
+        conflict: data['confidence'] == AieConfidence.conflict.name ||
+            ((data['activeConflicts'] as List?)?.isNotEmpty ?? false),
+        geometryValid:
+            _validLatLng(firstRule['latitude'], firstRule['longitude']) ||
+                data['geometry'] != null,
+        sourceHealth: _sourceHealth(data),
       );
     }).toList(growable: false);
   }
@@ -285,6 +330,32 @@ class ParkingIntelligenceService {
       DateTime.sunday => 'Sunday',
       _ => 'Unknown day',
     };
+  }
+
+  DateTime? _date(Object? value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value);
+    return null;
+  }
+
+  bool _validLatLng(Object? latitude, Object? longitude) {
+    final lat = (latitude as num?)?.toDouble();
+    final lng = (longitude as num?)?.toDouble();
+    if (lat == null || lng == null) return false;
+    if (lat == 0 && lng == 0) return false;
+    return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+  }
+
+  String _sourceHealth(Map<String, Object?> data) {
+    final explicit = data['sourceHealth'] ?? data['operationalHealth'];
+    if (explicit is String && explicit.isNotEmpty) return explicit;
+    if (data['importStatus'] == 'failed') return 'offline';
+    if (data['confidenceState'] == 'conflict' ||
+        data['confidence'] == AieConfidence.conflict.name) {
+      return 'warning';
+    }
+    return 'healthy';
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>?> _safeQuery(
