@@ -23,7 +23,7 @@ class ParkPalApp extends StatelessWidget {
       title: 'ParkPal',
       debugShowCheckedModeBanner: false,
       theme: buildParkPalTheme(),
-      initialRoute: ParkPalPlatformRoutes.home,
+      initialRoute: ParkPalPlatformRoutes.normalise(Uri.base.path),
       onGenerateRoute: (settings) {
         final routeName = ParkPalPlatformRoutes.normalise(settings.name);
         return ParkPalPlatformRoutes.routeTo(
