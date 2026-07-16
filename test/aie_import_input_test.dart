@@ -1,6 +1,7 @@
 import 'package:parkpal/features/atlas_intelligence/aie_import_engine.dart';
 import 'package:parkpal/features/atlas_intelligence/aie_models.dart';
 import 'package:parkpal/features/atlas_intelligence/aie_parser_engine.dart';
+import 'package:parkpal/features/atlas_intelligence/aie_source_connector_engine.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -171,11 +172,15 @@ void main() {
       input: 'https://data.westminster.gov.uk/download',
     );
 
-    expect(resolved.success, isTrue);
+    expect(resolved.success, isFalse);
     expect(resolved.messages, contains('Returned HTML not CSV.'));
     expect(resolved.diagnostics['failureStage'], 'parser_selection');
     expect(resolved.diagnostics['failureLabel'], 'Returned HTML not CSV');
     expect(resolved.diagnostics['parserError'], 'Returned HTML not CSV.');
+    expect(resolved.diagnostics['connectorUsed'], 'GenericHttpSourceConnector');
+    expect(resolved.diagnostics['expectedFormat'], contains('CSV'));
+    expect(resolved.diagnostics['detectedFormat'], contains('html'));
+    expect(resolved.diagnostics['suggestedAction'], contains('export'));
   });
 
   test('invalid CSV produces no parsed records', () async {
@@ -184,13 +189,11 @@ void main() {
       source: westminsterSource,
       input: 'not,a,parking,dataset\n1,2,3,4',
     );
-    final records = const AieParserEngine().parse(
-      source: westminsterSource,
-      rawData: resolved.body,
-    );
 
-    expect(resolved.success, isTrue);
-    expect(records, isEmpty);
+    expect(resolved.success, isFalse);
+    expect(resolved.diagnostics['failureLabel'], 'Invalid CSV headers');
+    expect(resolved.diagnostics['connectorUsed'], 'GenericHttpSourceConnector');
+    expect(resolved.diagnostics['suggestedAction'], contains('header row'));
   });
 
   test('duplicate checksum skip is detected', () async {
@@ -207,6 +210,103 @@ void main() {
     );
 
     expect(engine.isDuplicateChecksum(first.checksum, second.checksum), isTrue);
+  });
+
+  test('connector fingerprint permits retry after connector changes', () async {
+    final engine = AieImportEngine(fetchClient: _FakeFetchClient());
+
+    expect(
+      engine.isDuplicateChecksum(
+        'abc',
+        'abc',
+        previousConnectorFingerprint: 'csv_parser',
+        connectorFingerprint: 'json_parser',
+      ),
+      isFalse,
+    );
+  });
+
+  test('source connector detects every supported connector type', () {
+    const connectors = AieSourceConnectorEngine();
+    final cases = <String,
+        ({
+      String input,
+      String? contentType,
+      String? url,
+      AieConnectorType type
+    })>{
+      'CSV': (
+        input:
+            'roadName,restrictionType,activeHours\nBaker Street,No Waiting,08:30-18:30',
+        contentType: 'text/csv',
+        url: null,
+        type: AieConnectorType.csv,
+      ),
+      'JSON': (
+        input: '[{"roadName":"Baker Street","restrictionType":"No Waiting"}]',
+        contentType: 'application/json',
+        url: null,
+        type: AieConnectorType.json,
+      ),
+      'GeoJSON': (
+        input:
+            '{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"roadName":"Baker Street","restrictionType":"No Waiting"},"geometry":{"type":"Point","coordinates":[-0.1,51.5]}}]}',
+        contentType: 'application/geo+json',
+        url: null,
+        type: AieConnectorType.geojson,
+      ),
+      'XML': (
+        input:
+            '<?xml version="1.0"?><restrictions><restriction>No waiting on Baker Street</restriction></restrictions>',
+        contentType: 'application/xml',
+        url: null,
+        type: AieConnectorType.xml,
+      ),
+      'RSS': (
+        input:
+            '<rss><channel><item><title>No waiting on Baker Street</title></item></channel></rss>',
+        contentType: 'application/rss+xml',
+        url: null,
+        type: AieConnectorType.rss,
+      ),
+      'PDF': (
+        input: '%PDF-1.7 parking restriction order',
+        contentType: 'application/pdf',
+        url: null,
+        type: AieConnectorType.pdf,
+      ),
+      'Socrata': (
+        input: '',
+        contentType: null,
+        url:
+            'https://opendata.camden.gov.uk/dataset/Westminster-Parking-Spaces/2579-98vt',
+        type: AieConnectorType.socrataOpenData,
+      ),
+      'Generic HTTP': (
+        input: 'downloaded parking data with no declared format',
+        contentType: 'application/octet-stream',
+        url: 'https://example.gov.uk/download',
+        type: AieConnectorType.genericHttp,
+      ),
+    };
+
+    for (final entry in cases.entries) {
+      final decision = connectors.detect(
+        source: westminsterSource,
+        input: entry.value.input,
+        contentType: entry.value.contentType,
+        url: entry.value.url,
+      );
+
+      expect(
+        decision.connectorType,
+        entry.value.type,
+        reason: entry.key,
+      );
+      expect(decision.diagnostics['connectorUsed'], isNotNull);
+      expect(decision.diagnostics['expectedFormat'], isNotNull);
+      expect(decision.diagnostics['detectedFormat'], isNotNull);
+    }
   });
 
   test('selected council/source mismatch warning is returned', () async {
@@ -322,7 +422,7 @@ void main() {
     });
     final engine = AieImportEngine(fetchClient: client);
     final resolved = await engine.resolveImportInput(
-      source: westminsterSource,
+      source: camdenSource,
       input:
           'https://opendata.camden.gov.uk/dataset/Westminster-Parking-Spaces/2579-98vt',
     );

@@ -68,7 +68,7 @@ void main() {
       );
 
       expect(find.text('Dashboard'), findsOneWidget);
-      expect(find.text('Live Map'), findsOneWidget);
+      expect(find.text('Live Map'), findsWidgets);
       expect(find.text('Create Account'), findsNothing);
       expect(find.text('Features'), findsNothing);
     });

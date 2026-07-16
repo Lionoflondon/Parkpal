@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../features/account/account_screen.dart';
+import '../features/atlas_intelligence/customer_atlas_screen.dart';
+import '../features/dashboard/customer_dashboard_screen.dart';
 import '../features/history/parking_history_screen.dart';
 import '../features/parking_query/parking_home_screen.dart';
 import '../features/scan/scan_coming_soon_screen.dart';
@@ -72,9 +74,11 @@ class _ParkPalShellState extends State<ParkPalShell> {
 
   Widget _pageFor(String route) {
     return switch (route) {
-      ParkPalPlatformRoutes.dashboard => ParkingHomeScreen(
-          onOpenScan: () => _go(ParkPalPlatformRoutes.iris),
-          onOpenHistory: () => _go(ParkPalPlatformRoutes.savedPlaces),
+      ParkPalPlatformRoutes.dashboard => CustomerDashboardScreen(
+          onNavigate: _go,
+        ),
+      ParkPalPlatformRoutes.map => CustomerAtlasScreen(
+          onNavigate: _go,
         ),
       ParkPalPlatformRoutes.find => ParkingHomeScreen(
           onOpenScan: () => _go(ParkPalPlatformRoutes.iris),

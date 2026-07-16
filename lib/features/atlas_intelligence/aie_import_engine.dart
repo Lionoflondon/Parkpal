@@ -8,18 +8,22 @@ import '../../data/firestore_collections.dart';
 import '../../firebase/parkpal_firebase_options.dart';
 import 'aie_models.dart';
 import 'aie_parser_engine.dart';
+import 'aie_source_connector_engine.dart';
 
 class AieImportEngine {
   AieImportEngine({
     FirebaseFirestore? firestore,
     AieParserEngine parser = const AieParserEngine(),
+    AieSourceConnectorEngine connectorEngine = const AieSourceConnectorEngine(),
     AieFetchClient? fetchClient,
   })  : _firestore = firestore,
         _parser = parser,
+        _connectorEngine = connectorEngine,
         _fetchClient = fetchClient ?? const HttpAieFetchClient();
 
   final FirebaseFirestore? _firestore;
   final AieParserEngine _parser;
+  final AieSourceConnectorEngine _connectorEngine;
   final AieFetchClient _fetchClient;
 
   Future<AieImportResult> importOfficialSource({
@@ -155,6 +159,8 @@ class AieImportEngine {
         );
       }
       final previousChecksum = existingSource.data()?['checksum'] as String?;
+      final previousConnectorFingerprint =
+          existingSource.data()?['connectorFingerprint'] as String?;
 
       await _audit(firestore, 'import_started', {
         'batchId': batchId,
@@ -195,11 +201,23 @@ class AieImportEngine {
         );
       }
 
-      if (isDuplicateChecksum(previousChecksum, checksum)) {
+      if (isDuplicateChecksum(
+        previousChecksum,
+        checksum,
+        previousConnectorFingerprint: previousConnectorFingerprint,
+        connectorFingerprint: resolved.connectorFingerprint,
+      )) {
         skipped++;
         await sourceRef.set({
           ...source.toMap(),
           'checksum': checksum,
+          'connectorType': resolved.connectorType?.name,
+          'parserType': resolved.parserType?.name,
+          'validationRules': source.validationRules,
+          'authenticationRequirements': source.authenticationRequirements,
+          'expectedHeaders': source.expectedHeaders,
+          'geometrySupport': resolved.geometrySupport,
+          'connectorFingerprint': resolved.connectorFingerprint,
           'fetchUrl': resolved.fetchUrl,
           'canonicalSourceUrl': source.sourceUrl,
           'contentType': resolved.contentType,
@@ -458,6 +476,13 @@ class AieImportEngine {
       await sourceRef.set({
         ...source.toMap(),
         'checksum': checksum,
+        'connectorType': resolved.connectorType?.name,
+        'parserType': resolved.parserType?.name,
+        'validationRules': source.validationRules,
+        'authenticationRequirements': source.authenticationRequirements,
+        'expectedHeaders': source.expectedHeaders,
+        'geometrySupport': resolved.geometrySupport,
+        'connectorFingerprint': resolved.connectorFingerprint,
         'fetchUrl': resolved.fetchUrl,
         'canonicalSourceUrl': source.sourceUrl,
         'contentType': resolved.contentType,
@@ -632,19 +657,49 @@ class AieImportEngine {
         inputUri.host.isNotEmpty;
 
     if (!isUrl) {
+      final connector = _connectorEngine.detect(
+        source: source,
+        input: trimmed,
+      );
+      if (!connector.valid) {
+        return AieResolvedImportInput.failure(
+          checksum: _checksum(trimmed),
+          messages: [
+            connector.reasonForFailure ?? 'Connector validation failed.',
+          ],
+          documentType: connector.documentType,
+          diagnostics: {
+            ...baseDiagnostics,
+            ...connector.diagnostics,
+            'failureStage': 'validation',
+            'failureLabel': connector.reasonForFailure,
+          },
+          connectorType: connector.connectorType,
+          parserType: connector.parserType,
+          connectorFingerprint:
+              _connectorEngine.fingerprintFor(source, connector),
+          geometrySupport: connector.geometrySupported,
+        );
+      }
       final warnings = _councilWarnings(source, trimmed, null);
       return AieResolvedImportInput.success(
         body: trimmed,
         checksum: _checksum(trimmed),
         messages: warnings,
-        documentType: source.documentType,
+        documentType: connector.documentType,
         diagnostics: {
           ...baseDiagnostics,
+          ...connector.diagnostics,
           'inputMode': 'raw',
-          'selectedParser': source.documentType.name,
+          'selectedParser': connector.documentType.name,
           'responseSize': trimmed.length,
           'responsePreview': _preview(trimmed),
         },
+        connectorType: connector.connectorType,
+        parserType: connector.parserType,
+        connectorFingerprint:
+            _connectorEngine.fingerprintFor(source, connector),
+        geometrySupport: connector.geometrySupported,
       );
     }
 
@@ -749,9 +804,48 @@ class AieImportEngine {
       }
 
       final contentType = response.contentType;
+      final connector = _connectorEngine.detect(
+        source: source,
+        input: response.body,
+        contentType: contentType,
+        url: response.finalUrl ?? preflight.fetchUri.toString(),
+      );
+      final effectiveDocumentType =
+          preflight.selectedDocumentType == source.documentType
+              ? connector.documentType
+              : preflight.selectedDocumentType;
+      final effectiveParserType = _parserTypeForDocument(effectiveDocumentType);
+      final effectiveValidation = _connectorEngine.validate(
+        source: source,
+        connectorType: connector.connectorType,
+        parserType: effectiveParserType,
+        input: response.body,
+        contentType: contentType,
+      );
+      final effectiveConnector = AieConnectorDecision(
+        connectorType: connector.connectorType,
+        parserType: effectiveParserType,
+        documentType: effectiveDocumentType,
+        expectedFormat: connector.expectedFormat,
+        detectedFormat: connector.detectedFormat,
+        valid: effectiveValidation.valid,
+        geometrySupported: connector.geometrySupported,
+        reasonForFailure: effectiveValidation.reasonForFailure,
+        suggestedAction: effectiveValidation.suggestedAction,
+        diagnostics: {
+          ...connector.diagnostics,
+          'parserType': effectiveParserType.name,
+          if (effectiveValidation.reasonForFailure != null)
+            'reasonForFailure': effectiveValidation.reasonForFailure,
+          if (effectiveValidation.suggestedAction != null)
+            'suggestedAction': effectiveValidation.suggestedAction,
+        },
+      );
       final messages = [
         ...preflight.messages,
         'Fetched official download URL.',
+        if (!effectiveConnector.valid)
+          effectiveConnector.reasonForFailure ?? 'Connector validation failed.',
         ..._hardContentTypeFailures(selectedDocumentType, contentType),
         ..._contentTypeWarnings(selectedDocumentType, contentType),
         ..._councilWarnings(
@@ -762,6 +856,38 @@ class AieImportEngine {
       ];
       final htmlCsvMismatch = selectedDocumentType == AieDocumentType.csv &&
           _looksHtml(contentType);
+      if (!effectiveConnector.valid) {
+        final parserSelectionFailure =
+            effectiveConnector.reasonForFailure == 'Returned HTML not CSV';
+        return AieResolvedImportInput.failure(
+          checksum: _checksum(response.body),
+          fetchUrl: response.finalUrl ?? preflight.fetchUri.toString(),
+          contentType: contentType,
+          messages: messages,
+          documentType: effectiveDocumentType,
+          diagnostics: {
+            ...preflightDiagnostics,
+            ...effectiveConnector.diagnostics,
+            'failureStage':
+                parserSelectionFailure ? 'parser_selection' : 'validation',
+            'failureLabel': effectiveConnector.reasonForFailure,
+            'fetchUrl': preflight.fetchUri.toString(),
+            'constructedUrl': preflight.fetchUri.toString(),
+            'finalUrl': response.finalUrl ?? preflight.fetchUri.toString(),
+            'httpStatus': response.statusCode,
+            'contentType': contentType,
+            'selectedParser': effectiveDocumentType.name,
+            'responseSize': response.body.length,
+            'responsePreview': _preview(response.body),
+            if (parserSelectionFailure) 'parserError': 'Returned HTML not CSV.',
+          },
+          connectorType: effectiveConnector.connectorType,
+          parserType: effectiveConnector.parserType,
+          connectorFingerprint:
+              _connectorEngine.fingerprintFor(source, effectiveConnector),
+          geometrySupport: effectiveConnector.geometrySupported,
+        );
+      }
       return AieResolvedImportInput.success(
         body: response.body,
         checksum: _checksum(response.body),
@@ -769,16 +895,17 @@ class AieImportEngine {
         contentType: contentType,
         fetchedAt: DateTime.now().toUtc(),
         messages: messages,
-        documentType: selectedDocumentType,
+        documentType: effectiveDocumentType,
         diagnostics: {
           ...preflightDiagnostics,
+          ...effectiveConnector.diagnostics,
           'inputMode': 'url',
           'fetchUrl': preflight.fetchUri.toString(),
           'constructedUrl': preflight.fetchUri.toString(),
           'finalUrl': response.finalUrl ?? preflight.fetchUri.toString(),
           'httpStatus': response.statusCode,
           'contentType': contentType,
-          'selectedParser': selectedDocumentType.name,
+          'selectedParser': effectiveDocumentType.name,
           'selectedExportFormat': selectedFormat,
           'responseSize': response.body.length,
           'responsePreview': _preview(response.body),
@@ -786,6 +913,11 @@ class AieImportEngine {
           if (htmlCsvMismatch) 'failureLabel': 'Returned HTML not CSV',
           if (htmlCsvMismatch) 'parserError': 'Returned HTML not CSV.',
         },
+        connectorType: effectiveConnector.connectorType,
+        parserType: effectiveConnector.parserType,
+        connectorFingerprint:
+            _connectorEngine.fingerprintFor(source, effectiveConnector),
+        geometrySupport: effectiveConnector.geometrySupported,
       );
     } catch (error, stackTrace) {
       return AieResolvedImportInput.failure(
@@ -814,8 +946,17 @@ class AieImportEngine {
     }
   }
 
-  bool isDuplicateChecksum(String? previousChecksum, String checksum) {
-    return previousChecksum != null && previousChecksum == checksum;
+  bool isDuplicateChecksum(
+    String? previousChecksum,
+    String checksum, {
+    String? previousConnectorFingerprint,
+    String? connectorFingerprint,
+  }) {
+    if (previousChecksum == null || previousChecksum != checksum) return false;
+    if (previousConnectorFingerprint == null || connectorFingerprint == null) {
+      return true;
+    }
+    return previousConnectorFingerprint == connectorFingerprint;
   }
 
   Future<List<AieSource>> fetchSources({int limit = 50}) async {
@@ -1449,6 +1590,13 @@ class AieImportEngine {
       nextScheduledCheck: source.nextScheduledCheck,
       importStatus: source.importStatus,
       checksum: source.checksum,
+      connectorType: source.connectorType,
+      parserType: source.parserType,
+      validationRules: source.validationRules,
+      authenticationRequirements: source.authenticationRequirements,
+      expectedHeaders: source.expectedHeaders,
+      geometrySupport: source.geometrySupport,
+      connectorFingerprint: source.connectorFingerprint,
       version: source.version,
       confidence: source.confidence,
       enabled: source.enabled,
@@ -1776,6 +1924,18 @@ class AieImportEngine {
     };
   }
 
+  AieParserType _parserTypeForDocument(AieDocumentType documentType) {
+    return switch (documentType) {
+      AieDocumentType.csv => AieParserType.csv,
+      AieDocumentType.json => AieParserType.json,
+      AieDocumentType.geojson => AieParserType.geojson,
+      AieDocumentType.xml => AieParserType.xml,
+      AieDocumentType.rss => AieParserType.rss,
+      AieDocumentType.pdf => AieParserType.pdf,
+      AieDocumentType.html || AieDocumentType.docx => AieParserType.text,
+    };
+  }
+
   AieDocumentType? _documentTypeForExportFormat(String value) {
     final lower = value.toLowerCase().replaceAll('.', '').trim();
     return switch (lower) {
@@ -1799,6 +1959,10 @@ class AieResolvedImportInput {
     this.fetchUrl,
     this.contentType,
     this.fetchedAt,
+    this.connectorType,
+    this.parserType,
+    this.connectorFingerprint,
+    this.geometrySupport = false,
   });
 
   factory AieResolvedImportInput.success({
@@ -1810,6 +1974,10 @@ class AieResolvedImportInput {
     String? fetchUrl,
     String? contentType,
     DateTime? fetchedAt,
+    AieConnectorType? connectorType,
+    AieParserType? parserType,
+    String? connectorFingerprint,
+    bool geometrySupport = false,
   }) {
     return AieResolvedImportInput(
       success: true,
@@ -1821,6 +1989,10 @@ class AieResolvedImportInput {
       fetchUrl: fetchUrl,
       contentType: contentType,
       fetchedAt: fetchedAt,
+      connectorType: connectorType,
+      parserType: parserType,
+      connectorFingerprint: connectorFingerprint,
+      geometrySupport: geometrySupport,
     );
   }
 
@@ -1831,6 +2003,10 @@ class AieResolvedImportInput {
     String? contentType,
     Map<String, Object?> diagnostics = const {},
     AieDocumentType? documentType,
+    AieConnectorType? connectorType,
+    AieParserType? parserType,
+    String? connectorFingerprint,
+    bool geometrySupport = false,
   }) {
     return AieResolvedImportInput(
       success: false,
@@ -1841,6 +2017,10 @@ class AieResolvedImportInput {
       documentType: documentType ?? AieDocumentType.csv,
       fetchUrl: fetchUrl,
       contentType: contentType,
+      connectorType: connectorType,
+      parserType: parserType,
+      connectorFingerprint: connectorFingerprint,
+      geometrySupport: geometrySupport,
     );
   }
 
@@ -1853,6 +2033,10 @@ class AieResolvedImportInput {
   final String? fetchUrl;
   final String? contentType;
   final DateTime? fetchedAt;
+  final AieConnectorType? connectorType;
+  final AieParserType? parserType;
+  final String? connectorFingerprint;
+  final bool geometrySupport;
 }
 
 class _AieSourcePreflight {

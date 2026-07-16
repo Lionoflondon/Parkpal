@@ -20,6 +20,28 @@ enum AieSourceType {
 
 enum AieDocumentType { html, pdf, docx, csv, json, xml, rss, geojson }
 
+enum AieConnectorType {
+  csv,
+  json,
+  geojson,
+  xml,
+  rss,
+  pdf,
+  socrataOpenData,
+  genericHttp,
+}
+
+enum AieParserType {
+  csv,
+  json,
+  geojson,
+  xml,
+  rss,
+  pdf,
+  text,
+  socrataOpenData,
+}
+
 enum AieImportStatus { idle, queued, importing, imported, unchanged, failed }
 
 enum AieChangeType {
@@ -68,6 +90,13 @@ class AieSource {
     this.lastFailedImport,
     this.nextScheduledCheck,
     this.checksum,
+    this.connectorType,
+    this.parserType,
+    this.validationRules = const {},
+    this.authenticationRequirements = const {},
+    this.expectedHeaders = const [],
+    this.geometrySupport = false,
+    this.connectorFingerprint,
   });
 
   factory AieSource.fromMap(String id, Map<String, dynamic> data) {
@@ -92,6 +121,24 @@ class AieSource {
         orElse: () => AieImportStatus.idle,
       ),
       checksum: data['checksum'] as String?,
+      connectorType: _enumValue(
+        AieConnectorType.values,
+        data['connectorType'] as String?,
+      ),
+      parserType: _enumValue(
+        AieParserType.values,
+        data['parserType'] as String?,
+      ),
+      validationRules:
+          (data['validationRules'] as Map?)?.cast<String, Object?>() ??
+              const {},
+      authenticationRequirements: (data['authenticationRequirements'] as Map?)
+              ?.cast<String, Object?>() ??
+          const {},
+      expectedHeaders:
+          (data['expectedHeaders'] as List?)?.cast<String>() ?? const [],
+      geometrySupport: data['geometrySupport'] as bool? ?? false,
+      connectorFingerprint: data['connectorFingerprint'] as String?,
       version: (data['version'] as num?)?.toInt() ?? 0,
       confidence: (data['confidence'] as num?)?.toDouble() ?? 0,
       enabled: data['enabled'] as bool? ?? true,
@@ -109,6 +156,13 @@ class AieSource {
   final DateTime? nextScheduledCheck;
   final AieImportStatus importStatus;
   final String? checksum;
+  final AieConnectorType? connectorType;
+  final AieParserType? parserType;
+  final Map<String, Object?> validationRules;
+  final Map<String, Object?> authenticationRequirements;
+  final List<String> expectedHeaders;
+  final bool geometrySupport;
+  final String? connectorFingerprint;
   final int version;
   final double confidence;
   final bool enabled;
@@ -126,6 +180,13 @@ class AieSource {
       'nextScheduledCheck': _timestamp(nextScheduledCheck),
       'importStatus': importStatus.name,
       'checksum': checksum,
+      'connectorType': connectorType?.name,
+      'parserType': parserType?.name,
+      'validationRules': validationRules,
+      'authenticationRequirements': authenticationRequirements,
+      'expectedHeaders': expectedHeaders,
+      'geometrySupport': geometrySupport,
+      'connectorFingerprint': connectorFingerprint,
       'version': version,
       'confidence': confidence,
       'enabled': enabled,
@@ -347,4 +408,12 @@ DateTime? _date(Object? value) {
 
 Timestamp? _timestamp(DateTime? value) {
   return value == null ? null : Timestamp.fromDate(value);
+}
+
+T? _enumValue<T extends Enum>(List<T> values, String? name) {
+  if (name == null || name.isEmpty) return null;
+  for (final value in values) {
+    if (value.name == name) return value;
+  }
+  return null;
 }
