@@ -536,7 +536,7 @@ class _IrisScanCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Camera capture is guarded until the live IRIS scan pipeline is connected.',
+                        'IRIS sign scanning is coming soon. Search manually while scan mode is being finished.',
                         style: ParkPalText.body(
                           color: Colors.white.withValues(alpha: 0.74),
                           height: 1.35,

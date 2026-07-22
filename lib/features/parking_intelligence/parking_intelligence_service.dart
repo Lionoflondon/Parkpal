@@ -424,7 +424,7 @@ class ParkingIntelligenceService implements ParkingIntelligenceEvaluator {
       'likely' => 'Likely Atlas intelligence.',
       'conflicting' => 'Conflicting Atlas intelligence.',
       'stale' => 'Stale Atlas intelligence.',
-      'incompleteCoverage' => 'Incomplete Atlas coverage.',
+      'incompleteCoverage' => 'Limited Atlas information.',
       'sourceUnavailable' => 'Atlas source unavailable.',
       _ => 'Atlas intelligence.',
     };

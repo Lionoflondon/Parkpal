@@ -35,7 +35,7 @@ class ParkingLookupResult {
       riskLevel: 'Unknown',
       confidenceScore: 0,
       evidenceSource: ParkingEvidenceSource.none,
-      evidenceReason: 'No matching verified or imported evidence found.',
+      evidenceReason: 'No matching verified parking evidence found.',
       leaveByTime: 'Unknown',
     );
   }

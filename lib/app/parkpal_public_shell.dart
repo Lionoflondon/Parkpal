@@ -1,3 +1,5 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'parkpal_auth_service.dart';
@@ -61,10 +63,7 @@ class _ParkPalPublicShellState extends State<ParkPalPublicShell> {
 }
 
 class _PublicHeader extends StatelessWidget {
-  const _PublicHeader({
-    required this.currentRoute,
-    required this.onNavigate,
-  });
+  const _PublicHeader({required this.currentRoute, required this.onNavigate});
 
   final String currentRoute;
   final ValueChanged<String> onNavigate;
@@ -136,10 +135,7 @@ class _PublicHeader extends StatelessWidget {
 }
 
 class _PublicContent extends StatelessWidget {
-  const _PublicContent({
-    required this.routeName,
-    required this.onNavigate,
-  });
+  const _PublicContent({required this.routeName, required this.onNavigate});
 
   final String routeName;
   final ValueChanged<String> onNavigate;
@@ -150,37 +146,37 @@ class _PublicContent extends StatelessWidget {
       ParkPalPlatformRoutes.features => (
           'Features',
           'Parking intelligence, evidence records, sign certainty and map-led guidance in one calm platform.',
-          'Explore live checks, saved evidence, reports, notifications and Pioneer coverage.'
+          'Explore live checks, saved evidence, reports, notifications and Pioneer contributions.',
         ),
       ParkPalPlatformRoutes.iris => (
           'IRIS',
           'The ParkPal intelligence layer for signs, council rules, Atlas evidence and uncertainty.',
-          'IRIS explains why a parking answer is safe, risky or unknown without inventing confidence.'
+          'IRIS explains why a parking answer is safe, risky or unknown without inventing confidence.',
         ),
       ParkPalPlatformRoutes.atlas => (
           'Atlas',
           'A living parking intelligence map built from official data, verified signs and field evidence.',
-          'Atlas keeps source attribution, confidence and review needs visible.'
+          'Atlas explains what ParkPal knows, how confident it is, and what evidence supports the answer.',
         ),
       ParkPalPlatformRoutes.pioneer => (
           'Pioneer',
           'Help verify streets, signs and changing restrictions across the UK.',
-          'Pioneer missions turn local checks into better parking certainty.'
+          'Pioneer missions turn local checks into better parking certainty.',
         ),
       ParkPalPlatformRoutes.business => (
           'Business',
           'Parking certainty for couriers, tradespeople, riders and fleets.',
-          'Reduce tickets, wasted time and operational uncertainty with ParkPal intelligence.'
+          'Reduce tickets, wasted time and operational uncertainty with ParkPal intelligence.',
         ),
       ParkPalPlatformRoutes.support => (
           'Support',
           'Evidence-first help for unclear restrictions, reports and appeal preparation.',
-          'ParkPal keeps every check transparent and time-stamped.'
+          'ParkPal keeps every check transparent and time-stamped.',
         ),
       _ => (
           'Certainty before you walk away.',
           'Know before you park.',
-          'Search a road, check restrictions, save evidence and let IRIS explain the confidence behind every parking answer.'
+          'Search a road, check restrictions, save evidence and let IRIS explain the confidence behind every parking answer.',
         ),
     };
 
@@ -282,10 +278,7 @@ class _PublicContent extends StatelessWidget {
 }
 
 class _AuthPanel extends StatefulWidget {
-  const _AuthPanel({
-    required this.createAccount,
-    this.authService,
-  });
+  const _AuthPanel({required this.createAccount, this.authService});
 
   final bool createAccount;
   final ParkPalAuthService? authService;
@@ -299,6 +292,7 @@ class _AuthPanelState extends State<_AuthPanel> {
   final _password = TextEditingController();
   bool _loading = false;
   String? _error;
+  final List<String> _authTrace = [];
 
   @override
   void dispose() {
@@ -309,27 +303,56 @@ class _AuthPanelState extends State<_AuthPanel> {
 
   Future<void> _submit() async {
     if (_email.text.trim().isEmpty || _password.text.length < 7) {
-      setState(() =>
-          _error = 'Enter an email and a password of at least 7 characters.');
+      setState(
+        () =>
+            _error = 'Enter an email and a password of at least 7 characters.',
+      );
       return;
     }
     setState(() {
       _loading = true;
       _error = null;
+      _authTrace.clear();
     });
     try {
+      _addAuthTrace('submit(): started. authDebug=$_authDebugEnabled');
+      _addAuthTrace('submit(): Uri=${Uri.base}');
+      _addAuthTrace('submit(): route=${ModalRoute.of(context)?.settings.name}');
       final auth = widget.authService ?? ParkPalAuthService();
       if (widget.createAccount) {
+        _addAuthTrace('submit(): createAccount path selected');
         await auth.createAccount(email: _email.text, password: _password.text);
       } else {
-        await auth.signIn(email: _email.text, password: _password.text);
+        _addAuthTrace('submit(): signIn path selected');
+        await auth.signIn(
+          email: _email.text,
+          password: _password.text,
+          trace: _addAuthTrace,
+        );
+      }
+      _addAuthTrace('submit(): auth call completed without throwing');
+      if (!mounted) return;
+      Navigator.of(
+        context,
+      ).pushReplacementNamed(ParkPalPlatformRoutes.dashboard);
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        if (error is FirebaseAuthException) {
+          debugPrint(
+            'ParkPal auth panel FirebaseAuthException: '
+            'code=${error.code}, message=${error.message}, '
+            'runtimeType=${error.runtimeType}',
+          );
+        } else {
+          debugPrint(
+            'ParkPal auth panel raw exception: '
+            'runtimeType=${error.runtimeType}, value=$error',
+          );
+        }
+        debugPrint('ParkPal auth panel stack trace: $stackTrace');
       }
       if (!mounted) return;
-      Navigator.of(context)
-          .pushReplacementNamed(ParkPalPlatformRoutes.dashboard);
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _error = _friendlyAuthError(error));
+      setState(() => _error = _friendlyAuthError(error, stackTrace));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -359,8 +382,10 @@ class _AuthPanelState extends State<_AuthPanel> {
               const SizedBox(height: 8),
               Text(
                 'The site becomes your ParkPal application after sign-in — same domain, different shell.',
-                style:
-                    ParkPalText.body(color: ParkPalColors.muted, height: 1.45),
+                style: ParkPalText.body(
+                  color: ParkPalColors.muted,
+                  height: 1.45,
+                ),
               ),
               const SizedBox(height: 22),
               TextField(
@@ -379,19 +404,43 @@ class _AuthPanelState extends State<_AuthPanel> {
               ),
               if (_error != null) ...[
                 const SizedBox(height: 12),
-                Text(_error!,
-                    style: ParkPalText.body(color: ParkPalColors.red)),
+                Text(
+                  _error!,
+                  style: ParkPalText.body(color: ParkPalColors.red),
+                ),
+              ],
+              if (kDebugMode && _authDebugEnabled && _authTrace.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: ParkPalColors.ink.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: ParkPalColors.line),
+                  ),
+                  child: Text(
+                    'Auth trace\n${_authTrace.join('\n')}',
+                    style: ParkPalText.mono(
+                      fontSize: 11,
+                      color: ParkPalColors.ink,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
               ],
               const SizedBox(height: 18),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: _loading ? null : _submit,
-                  child: Text(_loading
-                      ? 'Please wait…'
-                      : widget.createAccount
-                          ? 'Create Account'
-                          : 'Sign In'),
+                  child: Text(
+                    _loading
+                        ? 'Please wait…'
+                        : widget.createAccount
+                            ? 'Create Account'
+                            : 'Sign In',
+                  ),
                 ),
               ),
             ],
@@ -401,18 +450,63 @@ class _AuthPanelState extends State<_AuthPanel> {
     );
   }
 
-  String _friendlyAuthError(Object error) {
-    final text = error.toString().toLowerCase();
-    if (text.contains('wrong-password') ||
-        text.contains('invalid-credential')) {
-      return 'Email or password is incorrect.';
+  String _friendlyAuthError(Object error, StackTrace stackTrace) {
+    final friendly = _friendlyAuthMessage(error);
+    if (!kDebugMode) return friendly;
+
+    if (error is FirebaseAuthException) {
+      return '$friendly\n\nDebug FirebaseAuthException\n'
+          'Code: ${error.code}\n'
+          'Message: ${error.message ?? 'No message provided.'}\n'
+          'Runtime type: ${error.runtimeType}\n'
+          'Stack trace:\n$stackTrace';
     }
-    if (text.contains('email-already-in-use')) {
-      return 'This email already has a ParkPal account.';
+
+    return '$friendly\n\nDebug raw exception\n'
+        'Runtime type: ${error.runtimeType}\n'
+        'Value: $error\n'
+        'Stack trace:\n$stackTrace';
+  }
+
+  String _friendlyAuthMessage(Object error) {
+    if (error is FirebaseAuthException) {
+      return switch (error.code) {
+        'invalid-credential' ||
+        'wrong-password' ||
+        'user-not-found' =>
+          'Email or password is incorrect.',
+        'invalid-email' => 'Enter a valid email address.',
+        'email-already-in-use' => 'This email already has a ParkPal account.',
+        'weak-password' => 'Choose a stronger password.',
+        'network-request-failed' => 'Network error. Please try again.',
+        'too-many-requests' =>
+          'Too many attempts. Wait a moment, then try again.',
+        'user-disabled' => 'This ParkPal account has been disabled.',
+        'operation-not-allowed' =>
+          'Email/password sign-in is not enabled for this Firebase project.',
+        'unauthorized-domain' =>
+          'This domain is not authorised for ParkPal sign-in.',
+        'web-storage-unsupported' =>
+          'This browser is blocking the storage ParkPal needs to keep you signed in.',
+        _ => 'ParkPal could not authenticate this account.',
+      };
     }
-    if (text.contains('weak-password')) return 'Choose a stronger password.';
-    if (text.contains('network')) return 'Network error. Please try again.';
-    return 'ParkPal could not authenticate this account. Please try again.';
+
+    return 'ParkPal could not authenticate this account.';
+  }
+
+  bool get _authDebugEnabled => Uri.base.queryParameters['authDebug'] == '1';
+
+  void _addAuthTrace(String message) {
+    final line = '${DateTime.now().toIso8601String()}  $message';
+    if (kDebugMode) {
+      debugPrint('ParkPal auth trace: $line');
+    }
+    if (!mounted) {
+      _authTrace.add(line);
+      return;
+    }
+    setState(() => _authTrace.add(line));
   }
 }
 

@@ -98,23 +98,23 @@ class ParkingIRIS {
 
     if (evidence.conflict) {
       score = score * 0.45;
-      reasons.add('conflict penalty applied');
+      reasons.add('evidence disagrees');
     }
     if (!evidence.geometryValid) {
       score = score * 0.75;
-      reasons.add('geometry requires validation');
+      reasons.add('location needs confirmation');
     }
     final freshness = _freshnessMultiplier(evidence.lastUpdatedAt);
     if (freshness < 1) {
       score = score * freshness;
-      reasons.add('freshness multiplier ${(freshness * 100).round()}%');
+      reasons.add('information may be older');
     }
     if (evidence.sourceHealth == 'offline') {
       score = score * 0.7;
-      reasons.add('source health offline');
+      reasons.add('supporting information unavailable');
     } else if (evidence.sourceHealth == 'warning') {
       score = score * 0.86;
-      reasons.add('source health warning');
+      reasons.add('supporting information needs review');
     }
 
     return ParkingConfidence(

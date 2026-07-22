@@ -174,7 +174,7 @@ class _DashboardHero extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            'Your ParkPal dashboard brings together parking checks, Atlas coverage and evidence records without leaving the customer platform.',
+            'Your ParkPal dashboard brings together parking checks, evidence records and clear parking guidance without leaving the customer platform.',
             style: ParkPalText.body(
               color: ParkPalColors.muted,
               height: 1.5,
@@ -203,10 +203,8 @@ class _MetricGrid extends StatelessWidget {
     final checks = data.history.length;
     final evidenceRecords =
         data.history.where((entry) => entry.sourceUsed != 'none').length;
-    final coverage = data.atlas.coveragePercent.round();
-    final reviewItems = data.atlas.conflicts +
-        data.atlas.staleRecords +
-        data.roadsNeedingReview.length;
+    final confidence = _confidenceLabel(data);
+    final alerts = _customerAlertCount(data);
     final cards = [
       _MetricCard(
         label: 'Parking checks',
@@ -221,16 +219,16 @@ class _MetricGrid extends StatelessWidget {
         tone: ParkPalColors.irisBlue,
       ),
       _MetricCard(
-        label: 'Atlas coverage',
-        value: '$coverage%',
-        icon: Icons.map_rounded,
+        label: 'Parking confidence',
+        value: confidence,
+        icon: Icons.verified_user_rounded,
         tone: ParkPalColors.safeGreen,
       ),
       _MetricCard(
-        label: 'Needs review',
-        value: '$reviewItems',
-        icon: Icons.warning_amber_rounded,
-        tone: reviewItems == 0 ? ParkPalColors.safeGreen : ParkPalColors.amber,
+        label: 'Live alerts',
+        value: '$alerts',
+        icon: Icons.notifications_active_rounded,
+        tone: alerts == 0 ? ParkPalColors.safeGreen : ParkPalColors.amber,
       ),
     ];
 
@@ -248,6 +246,29 @@ class _MetricGrid extends StatelessWidget {
         );
       },
     );
+  }
+
+  String _confidenceLabel(_DashboardData data) {
+    final road =
+        data.roadsNeedingReview.isEmpty ? null : data.roadsNeedingReview.first;
+    if (road == null) return 'Ready';
+    if (road.status == AtlasRoadStatus.verified && road.verifiedSigns > 0) {
+      return 'High';
+    }
+    if (road.status == AtlasRoadStatus.conflict ||
+        road.status == AtlasRoadStatus.needs_refresh ||
+        road.status == AtlasRoadStatus.awaiting_verification) {
+      return 'Medium';
+    }
+    return 'Low';
+  }
+
+  int _customerAlertCount(_DashboardData data) {
+    return data.roadsNeedingReview
+        .where((road) =>
+            road.status == AtlasRoadStatus.conflict ||
+            road.status == AtlasRoadStatus.needs_refresh)
+        .length;
   }
 }
 
@@ -331,39 +352,14 @@ class _AtlasReadinessCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _Panel(
-      title: 'Atlas readiness',
+      title: 'Atlas Intelligence',
       actionLabel: 'Open map',
       onAction: () => onNavigate(ParkPalPlatformRoutes.map),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: _MiniStat(
-                  label: 'Coverage',
-                  value: '${summary.coveragePercent.round()}%',
-                ),
-              ),
-              Expanded(
-                child: _MiniStat(
-                  label: 'PCI',
-                  value: '${summary.pciScore.round()}',
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: (summary.coveragePercent / 100).clamp(0, 1),
-              minHeight: 9,
-              color: ParkPalColors.green700,
-              backgroundColor: ParkPalColors.lineSoft,
-            ),
-          ),
-          const SizedBox(height: 14),
+          _ConfidenceExplainer(roads: roads),
+          const SizedBox(height: 16),
           Text(
             _atlasCopy(summary),
             style: ParkPalText.body(color: ParkPalColors.muted, height: 1.45),
@@ -371,7 +367,7 @@ class _AtlasReadinessCard extends StatelessWidget {
           if (roads.isNotEmpty) ...[
             const SizedBox(height: 14),
             Text(
-              'Roads needing attention',
+              'Useful nearby alerts',
               style: ParkPalText.body(
                 color: ParkPalColors.ink,
                 fontWeight: FontWeight.w900,
@@ -380,7 +376,7 @@ class _AtlasReadinessCard extends StatelessWidget {
             const SizedBox(height: 8),
             for (final road in roads)
               Text(
-                '• ${road.roadName} — ${road.status.name.replaceAll('_', ' ')}',
+                '• ${_customerRoadCopy(road)}',
                 style: ParkPalText.body(color: ParkPalColors.muted),
               ),
           ],
@@ -391,15 +387,114 @@ class _AtlasReadinessCard extends StatelessWidget {
 
   String _atlasCopy(AtlasSummary summary) {
     if (summary.totalKnownRoads == 0) {
-      return 'Atlas is ready. Coverage will appear as verified roads and official council data are loaded.';
+      return 'Atlas is ready to explain parking decisions as verified signs, council information and community evidence become available.';
     }
     if (summary.conflicts > 0) {
-      return 'Atlas has ${summary.conflicts} conflict signals waiting for review.';
+      return 'Some nearby information needs extra care. ParkPal will tell you when confidence is limited.';
     }
     if (summary.staleRecords > 0) {
-      return 'Atlas has ${summary.staleRecords} stale records to refresh.';
+      return 'Some parking information may have changed recently. Always check the sign in front of you.';
     }
-    return 'Atlas is tracking ${summary.totalKnownRoads} known roads with ${summary.verifiedRoads} verified.';
+    return 'Atlas combines council information, verified signs and community confirmations to explain parking rules clearly.';
+  }
+
+  String _customerRoadCopy(ParkPalAtlasRoadProfile road) {
+    return switch (road.status) {
+      AtlasRoadStatus.conflict =>
+        '${road.roadName}: check signs carefully before parking.',
+      AtlasRoadStatus.needs_refresh =>
+        '${road.roadName}: rules may have changed recently.',
+      AtlasRoadStatus.awaiting_verification =>
+        '${road.roadName}: evidence is being confirmed.',
+      AtlasRoadStatus.unmapped =>
+        '${road.roadName}: ParkPal has limited information.',
+      AtlasRoadStatus.verified =>
+        '${road.roadName}: parking information is verified.',
+      AtlasRoadStatus.partially_mapped =>
+        '${road.roadName}: some restrictions are known.',
+    };
+  }
+}
+
+class _ConfidenceExplainer extends StatelessWidget {
+  const _ConfidenceExplainer({required this.roads});
+
+  final List<ParkPalAtlasRoadProfile> roads;
+
+  @override
+  Widget build(BuildContext context) {
+    final road = roads.isEmpty ? null : roads.first;
+    final confidence = _confidence(road);
+    final color = switch (confidence) {
+      'High' => ParkPalColors.safeGreen,
+      'Medium' => ParkPalColors.amber,
+      _ => ParkPalColors.mutedTwo,
+    };
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.verified_user_rounded, color: color),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Parking Confidence: $confidence',
+                  style: ParkPalText.body(
+                    color: ParkPalColors.ink,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _why(road),
+                  style: ParkPalText.body(
+                    color: ParkPalColors.muted,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _confidence(ParkPalAtlasRoadProfile? road) {
+    if (road == null) return 'Low';
+    if (road.status == AtlasRoadStatus.verified && road.verifiedSigns > 0) {
+      return 'High';
+    }
+    if (road.status == AtlasRoadStatus.conflict ||
+        road.status == AtlasRoadStatus.needs_refresh ||
+        road.status == AtlasRoadStatus.awaiting_verification) {
+      return 'Medium';
+    }
+    return 'Low';
+  }
+
+  String _why(ParkPalAtlasRoadProfile? road) {
+    if (road == null) {
+      return 'Search or select a road to see why ParkPal is confident.';
+    }
+    if (road.status == AtlasRoadStatus.verified && road.verifiedSigns > 0) {
+      return "We're highly confident because this area has verified sign evidence and council information.";
+    }
+    if (road.status == AtlasRoadStatus.conflict) {
+      return 'Confidence is limited because recent evidence does not fully agree. Check nearby signs before parking.';
+    }
+    if (road.status == AtlasRoadStatus.needs_refresh) {
+      return 'Confidence is medium because rules may have changed recently.';
+    }
+    return 'Confidence is limited until ParkPal has more verified evidence for this road.';
   }
 }
 
@@ -555,40 +650,6 @@ class _HistoryRow extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _MiniStat extends StatelessWidget {
-  const _MiniStat({
-    required this.label,
-    required this.value,
-  });
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          value,
-          style: ParkPalText.display(
-            fontSize: 28,
-            fontWeight: FontWeight.w900,
-            color: ParkPalColors.ink,
-          ),
-        ),
-        Text(
-          label,
-          style: ParkPalText.body(
-            color: ParkPalColors.muted,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      ],
     );
   }
 }
