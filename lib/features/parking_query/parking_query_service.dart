@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 import '../../data/firestore_collections.dart';
+import '../parking_intelligence/current_location_service.dart';
 import '../parking_intelligence/parking_intelligence_models.dart';
 import '../parking_intelligence/parking_intelligence_service.dart';
 import 'parking_lookup_result.dart';
@@ -36,6 +37,29 @@ class ParkingQueryService {
     return result;
   }
 
+  Future<ParkingLookupResult> searchNearby(ParkPalLocationFix fix) async {
+    if (!fix.isValid) return ParkingLookupResult.unknown();
+
+    final firestore = await _safeFirestore();
+    if (firestore == null) return ParkingLookupResult.unknown();
+
+    final result = await ParkingIntelligenceService(
+      firestore: firestore,
+    ).evaluateLocation(fix);
+
+    await _logQuery(
+      firestore: firestore,
+      queryText: 'Current location (${fix.compactLabel})',
+      result: result,
+      latitude: fix.latitude,
+      longitude: fix.longitude,
+      gpsAccuracyMeters: fix.accuracyMeters,
+      gpsCapturedAt: fix.capturedAt,
+    );
+
+    return result;
+  }
+
   Future<FirebaseFirestore?> _safeFirestore() async {
     try {
       if (Firebase.apps.isEmpty) {
@@ -51,6 +75,10 @@ class ParkingQueryService {
     required FirebaseFirestore firestore,
     required String queryText,
     required ParkingLookupResult result,
+    double? latitude,
+    double? longitude,
+    double? gpsAccuracyMeters,
+    DateTime? gpsCapturedAt,
   }) async {
     try {
       final userId = (_auth ?? FirebaseAuth.instance).currentUser?.uid;
@@ -71,6 +99,13 @@ class ParkingQueryService {
         'explanation': result.ruleSummary,
         'confidenceReason': result.evidenceReason,
         'mode': 'parking',
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+        if (latitude != null && longitude != null)
+          'geoPoint': GeoPoint(latitude, longitude),
+        if (gpsAccuracyMeters != null) 'gpsAccuracyMeters': gpsAccuracyMeters,
+        if (gpsCapturedAt != null)
+          'gpsCapturedAt': Timestamp.fromDate(gpsCapturedAt),
         'createdAt': FieldValue.serverTimestamp(),
       });
     } catch (_) {

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/parkpal_theme.dart';
 import '../history/parking_history_entry.dart';
 import '../history/parking_history_service.dart';
+import '../parking_intelligence/current_location_service.dart';
 import 'parking_lookup_result.dart';
 import 'parking_query_service.dart';
 
@@ -22,11 +23,14 @@ class _ParkingHomeScreenState extends State<ParkingHomeScreen> {
   final _controller = TextEditingController();
   final _service = ParkingQueryService();
   final _historyService = ParkingHistoryService();
+  final _locationService = const ParkPalCurrentLocationService();
 
   ParkingLookupResult? _result;
   Future<List<ParkingHistoryEntry>>? _recentHistory;
   bool _isLoading = false;
+  bool _isGpsLoading = false;
   String? _error;
+  String? _gpsStatus;
 
   @override
   void initState() {
@@ -69,6 +73,46 @@ class _ParkingHomeScreenState extends State<ParkingHomeScreen> {
     }
   }
 
+  Future<void> _searchWithGps() async {
+    setState(() {
+      _isGpsLoading = true;
+      _error = null;
+      _gpsStatus = 'Getting your location…';
+    });
+
+    try {
+      final location = await _locationService.getCurrentLocation();
+      if (!mounted) return;
+      if (!location.isSuccess || location.fix == null) {
+        setState(() {
+          _gpsStatus = null;
+          _error = location.customerMessage;
+        });
+        return;
+      }
+
+      final fix = location.fix!;
+      setState(() {
+        _gpsStatus =
+            'GPS captured ${fix.compactLabel} • accuracy ${fix.accuracyMeters.round()}m';
+      });
+      final result = await _service.searchNearby(fix);
+      if (!mounted) return;
+      setState(() {
+        _result = result;
+        _recentHistory = _historyService.fetchRecent(limit: 3);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _gpsStatus = null;
+        _error = 'ParkPal could not complete the GPS check. Please try again.';
+      });
+    } finally {
+      if (mounted) setState(() => _isGpsLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -82,8 +126,11 @@ class _ParkingHomeScreenState extends State<ParkingHomeScreen> {
             _HeroPanel(
               controller: _controller,
               isLoading: _isLoading,
+              isGpsLoading: _isGpsLoading,
               error: _error,
+              gpsStatus: _gpsStatus,
               onSearch: _search,
+              onGpsSearch: _searchWithGps,
               onOpenHistory: widget.onOpenHistory,
             ),
             const SizedBox(height: 18),
@@ -369,15 +416,21 @@ class _HeroPanel extends StatelessWidget {
   const _HeroPanel({
     required this.controller,
     required this.isLoading,
+    required this.isGpsLoading,
     required this.error,
+    required this.gpsStatus,
     required this.onSearch,
+    required this.onGpsSearch,
     required this.onOpenHistory,
   });
 
   final TextEditingController controller;
   final bool isLoading;
+  final bool isGpsLoading;
   final String? error;
+  final String? gpsStatus;
   final VoidCallback onSearch;
+  final VoidCallback onGpsSearch;
   final VoidCallback? onOpenHistory;
 
   @override
@@ -455,9 +508,14 @@ class _HeroPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: null,
-                  icon: const Icon(Icons.near_me_rounded),
-                  label: const Text('GPS'),
+                  onPressed: isLoading || isGpsLoading ? null : onGpsSearch,
+                  icon: isGpsLoading
+                      ? const SizedBox.square(
+                          dimension: 17,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.near_me_rounded),
+                  label: Text(isGpsLoading ? 'Locating…' : 'Use GPS'),
                 ),
               ),
               const SizedBox(width: 10),
@@ -472,7 +530,8 @@ class _HeroPanel extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'GPS lookup is not enabled yet. Manual search uses live ParkPal records only.',
+            gpsStatus ??
+                'GPS uses your measured device location and only returns a clear answer when nearby ParkPal evidence exists.',
             style: ParkPalText.body(
               color: ParkPalColors.mutedTwo,
               fontSize: 12,
@@ -925,9 +984,8 @@ class _RecentHistoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final summary = entry.ruleSummary.isEmpty
-        ? entry.resultStatus
-        : entry.ruleSummary;
+    final summary =
+        entry.ruleSummary.isEmpty ? entry.resultStatus : entry.ruleSummary;
 
     return Container(
       padding: const EdgeInsets.all(15),
