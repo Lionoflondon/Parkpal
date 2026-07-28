@@ -116,7 +116,15 @@ Seed records live in:
 firebase/seeds/london_seed.json
 ```
 
-They are intentionally sample data, not authoritative council data. Import them only into a development project or emulator after writing a small importer or using the Firebase Admin SDK.
+They are intentionally transparent ParkPal starter intelligence, not live council authority. They exist so the customer search/GPS flows can demonstrate confident answers for a small set of London examples while official D-TRO/council imports continue to expand Atlas.
+
+To merge the starter records into the connected ParkPal project:
+
+```sh
+node tools/import_london_seed.js --project parkpal-prod
+```
+
+The importer is merge-only and does not delete existing records.
 
 ## Security model draft
 
