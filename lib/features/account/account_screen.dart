@@ -1,7 +1,9 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../app/parkpal_theme.dart';
+import '../payments/parkpal_billing_service.dart';
 
 enum AccountScreenMode { profile, settings }
 
@@ -31,6 +33,7 @@ class AccountScreen extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         if (mode == AccountScreenMode.profile) ...[
+          const _PaymentsSubscriptionSection(),
           const _ProfileSection(
             icon: Icons.directions_car_rounded,
             title: 'My Vehicles',
@@ -322,6 +325,313 @@ class _HeaderMetric extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PaymentsSubscriptionSection extends StatefulWidget {
+  const _PaymentsSubscriptionSection();
+
+  @override
+  State<_PaymentsSubscriptionSection> createState() =>
+      _PaymentsSubscriptionSectionState();
+}
+
+class _PaymentsSubscriptionSectionState
+    extends State<_PaymentsSubscriptionSection> {
+  final _billing = ParkPalBillingService();
+  late Future<ParkPalSubscriptionSnapshot?> _subscription;
+  bool _loadingAction = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _subscription = _billing.getSubscription();
+  }
+
+  Future<void> _refresh() async {
+    setState(() => _subscription = _billing.refreshSubscription());
+  }
+
+  Future<void> _startCheckout() async {
+    await _runBillingAction(
+      () => _billing.createCheckoutSession(planKey: 'parkpal_monthly'),
+      'Stripe Checkout link copied. Open it in your browser to subscribe.',
+    );
+  }
+
+  Future<void> _openPortal({bool reactivate = false}) async {
+    await _runBillingAction(
+      () => _billing.createBillingPortalSession(reactivate: reactivate),
+      reactivate
+          ? 'Stripe billing portal link copied. Open it to reactivate.'
+          : 'Stripe billing portal link copied. Open it to manage billing.',
+    );
+  }
+
+  Future<void> _runBillingAction(
+    Future<ParkPalBillingSession?> Function() action,
+    String successMessage,
+  ) async {
+    if (_loadingAction) return;
+    setState(() => _loadingAction = true);
+    final session = await action();
+    if (!mounted) return;
+    setState(() => _loadingAction = false);
+    if (session?.url == null) {
+      _show('Billing is not available yet. Check Stripe plan configuration.');
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: session!.url));
+    _show(successMessage);
+    await _refresh();
+  }
+
+  void _show(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<ParkPalSubscriptionSnapshot?>(
+      future: _subscription,
+      builder: (context, snapshot) {
+        final subscription = snapshot.data;
+        final loading = snapshot.connectionState == ConnectionState.waiting;
+        final title = subscription == null
+            ? 'Upgrade your ParkPal intelligence'
+            : subscription.cancelAtPeriodEnd
+                ? 'Your subscription will end on ${_date(subscription.currentPeriodEnd)}'
+                : subscription.isPastDue
+                    ? 'Payment needs attention'
+                    : subscription.isActive
+                        ? 'Your ParkPal subscription is active'
+                        : 'Upgrade your ParkPal intelligence';
+        final body = subscription == null
+            ? 'Get ongoing access to advanced parking restriction checks, evidence tools, alerts, and premium intelligence.'
+            : subscription.cancelAtPeriodEnd
+                ? 'Your access remains active until the end of the current billing period.'
+                : subscription.isPastDue
+                    ? 'Update your billing information to keep access to ParkPal premium intelligence.'
+                    : subscription.isActive
+                        ? 'Plan: ${subscription.planName}\nNext payment: ${_date(subscription.currentPeriodEnd)}\nStatus: Active'
+                        : 'Get ongoing access to advanced parking restriction checks, evidence tools, alerts, and premium intelligence.';
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 14),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                ParkPalColors.green900,
+                ParkPalColors.green700,
+                ParkPalColors.irisBlue.withValues(alpha: 0.78),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(32),
+            boxShadow: [
+              BoxShadow(
+                color: ParkPalColors.green700.withValues(alpha: 0.16),
+                blurRadius: 30,
+                offset: const Offset(0, 18),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.24),
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.workspace_premium_rounded,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Payments & Subscription',
+                          style: ParkPalText.display(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        Text(
+                          'Software subscription only — ParkPal does not sell or reserve parking.',
+                          style: ParkPalText.body(
+                            color: Colors.white.withValues(alpha: 0.72),
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              if (loading)
+                LinearProgressIndicator(
+                  color: ParkPalColors.irisCyan,
+                  backgroundColor: Colors.white.withValues(alpha: 0.18),
+                )
+              else ...[
+                Text(
+                  title,
+                  style: ParkPalText.display(
+                    color: Colors.white,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  body,
+                  style: ParkPalText.body(
+                    color: Colors.white.withValues(alpha: 0.78),
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _BillingInfoGrid(subscription: subscription),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    if (subscription == null || !subscription.isActive)
+                      FilledButton.icon(
+                        onPressed: _loadingAction ? null : _startCheckout,
+                        icon: const Icon(Icons.credit_card_rounded),
+                        label: const Text('Choose a monthly plan'),
+                      ),
+                    if (subscription != null)
+                      FilledButton.icon(
+                        onPressed: _loadingAction ? null : () => _openPortal(),
+                        icon: const Icon(Icons.receipt_long_rounded),
+                        label: const Text('Manage subscription'),
+                      ),
+                    if (subscription?.cancelAtPeriodEnd == true)
+                      OutlinedButton.icon(
+                        onPressed: _loadingAction
+                            ? null
+                            : () => _openPortal(reactivate: true),
+                        icon: const Icon(Icons.restart_alt_rounded),
+                        label: const Text('Reactivate subscription'),
+                      ),
+                    OutlinedButton.icon(
+                      onPressed: _loadingAction ? null : _refresh,
+                      icon: const Icon(Icons.sync_rounded),
+                      label: const Text('Restore / refresh'),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  static String _date(DateTime? date) {
+    if (date == null) return 'shown after Stripe confirms billing';
+    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+  }
+}
+
+class _BillingInfoGrid extends StatelessWidget {
+  const _BillingInfoGrid({required this.subscription});
+
+  final ParkPalSubscriptionSnapshot? subscription;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      _BillingInfo('Current plan', subscription?.planName ?? 'No active plan'),
+      _BillingInfo('Subscription status', subscription?.status ?? 'Not active'),
+      _BillingInfo(
+          'Monthly price', subscription?.priceLabel ?? 'Configured in Stripe'),
+      _BillingInfo(
+        'Next billing date',
+        _PaymentsSubscriptionSectionState._date(subscription?.currentPeriodEnd),
+      ),
+      const _BillingInfo('Payment method', 'Managed securely by Stripe'),
+      _BillingInfo(
+        'Billing history',
+        subscription?.latestPaymentStatus == null
+            ? 'Receipts appear after payment'
+            : 'Latest payment ${subscription!.latestPaymentStatus}',
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth >= 680
+            ? (constraints.maxWidth - 20) / 2
+            : constraints.maxWidth;
+        return Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final item in items)
+              Container(
+                width: width,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.22),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.label,
+                      style: ParkPalText.mono(
+                        color: Colors.white.withValues(alpha: 0.64),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      item.value,
+                      style: ParkPalText.body(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _BillingInfo {
+  const _BillingInfo(this.label, this.value);
+
+  final String label;
+  final String value;
 }
 
 class _ProfileSection extends StatelessWidget {

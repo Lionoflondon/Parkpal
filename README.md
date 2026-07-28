@@ -136,19 +136,22 @@ Configure production secrets in the ParkPal Firebase project before deploying pa
 ```sh
 firebase functions:secrets:set STRIPE_SECRET_KEY --project parkpal-prod
 firebase functions:secrets:set STRIPE_WEBHOOK_SECRET --project parkpal-prod
-firebase functions:secrets:set PARKPAL_STRIPE_PRICE_IDS --project parkpal-prod
+firebase functions:secrets:set PARKPAL_STRIPE_MONTHLY_PRICE_ID --project parkpal-prod
+firebase functions:secrets:set PARKPAL_STRIPE_BUSINESS_MONTHLY_PRICE_ID --project parkpal-prod
 ```
 
-`PARKPAL_STRIPE_PRICE_IDS` uses comma-separated `planId:priceId` pairs, for example:
+`PARKPAL_STRIPE_MONTHLY_PRICE_ID` and `PARKPAL_STRIPE_BUSINESS_MONTHLY_PRICE_ID` must be monthly GBP Stripe Price IDs. The backend resolves plan keys to these IDs server-side; the frontend never submits arbitrary Stripe prices.
+
+For backward-compatible multi-plan config, `PARKPAL_STRIPE_PRICE_IDS` is also supported with comma-separated `planId:priceId` pairs:
 
 ```text
-parkpal_plus:price_123,parkpal_fleet:price_456
+parkpal_monthly:price_123,parkpal_business_monthly:price_456
 ```
 
 Deploy the Stripe mechanism only after the secrets and Stripe webhook endpoint are configured:
 
 ```sh
-firebase deploy --only functions:createParkPalStripeCheckoutSession,functions:createParkPalStripeBillingPortalSession,functions:parkPalStripeWebhook --project parkpal-prod
+firebase deploy --only functions:createParkPalSubscriptionCheckout,functions:createParkPalBillingPortalSession,functions:getParkPalSubscription,functions:refreshParkPalSubscription,functions:parkPalStripeWebhook --project parkpal-prod
 ```
 
 ## Security model draft

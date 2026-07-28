@@ -5,6 +5,8 @@ const test = require("node:test");
 const {
   assertParkingIntelligencePlan,
   parseStripePriceConfig,
+  planForKey,
+  resolveParkPalPlans,
   stripeForm,
   stripeRequest,
   verifyStripeSignature,
@@ -21,6 +23,27 @@ test("assertParkingIntelligencePlan rejects booking-oriented plan ids", () => {
   assert.doesNotThrow(() => assertParkingIntelligencePlan("parkpal_plus"));
   assert.throws(() => assertParkingIntelligencePlan("parking_booking_plus"));
   assert.throws(() => assertParkingIntelligencePlan("reservation"));
+});
+
+test("resolveParkPalPlans uses monthly server-side price configuration", () => {
+  const plans = resolveParkPalPlans({
+    PARKPAL_STRIPE_MONTHLY_PRICE_ID: "price_personal",
+    PARKPAL_STRIPE_BUSINESS_MONTHLY_PRICE_ID: "price_business",
+  });
+
+  assert.equal(plans[0].key, "parkpal_monthly");
+  assert.equal(plans[0].stripePriceId, "price_personal");
+  assert.equal(plans[0].billingInterval, "month");
+  assert.equal(plans[0].currency, "gbp");
+  assert.equal(plans[0].active, true);
+  assert.equal(plans[1].stripePriceId, "price_business");
+});
+
+test("planForKey resolves aliases without accepting client price ids", () => {
+  const env = {PARKPAL_STRIPE_MONTHLY_PRICE_ID: "price_personal"};
+  assert.equal(planForKey("parkpal_monthly", env).stripePriceId, "price_personal");
+  assert.equal(planForKey("parkpal_plus", env).key, "parkpal_monthly");
+  assert.throws(() => planForKey("price_123", env));
 });
 
 test("stripeForm encodes Stripe nested form fields", () => {
