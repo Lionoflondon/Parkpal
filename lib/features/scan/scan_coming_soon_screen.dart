@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../app/parkpal_theme.dart';
+import '../sign_capture/sign_capture_screen.dart';
 
 class ScanComingSoonScreen extends StatelessWidget {
-  const ScanComingSoonScreen({super.key});
+  const ScanComingSoonScreen({this.onSearchManually, super.key});
+
+  final VoidCallback? onSearchManually;
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +24,12 @@ class ScanComingSoonScreen extends StatelessWidget {
                   Row(
                     children: [
                       IconButton.filledTonal(
-                        onPressed: () => Navigator.of(context).pop(),
+                        onPressed: onSearchManually ??
+                            () {
+                              if (Navigator.of(context).canPop()) {
+                                Navigator.of(context).pop();
+                              }
+                            },
                         icon: const Icon(Icons.close_rounded),
                         color: Colors.white,
                         style: IconButton.styleFrom(
@@ -77,7 +85,7 @@ class ScanComingSoonScreen extends StatelessWidget {
                           const _ScanFrame(),
                           const SizedBox(height: 24),
                           Text(
-                            'IRIS sign scan',
+                            'IRIS sign intelligence',
                             style: ParkPalText.display(
                               color: Colors.white,
                               fontSize: 34,
@@ -87,7 +95,7 @@ class ScanComingSoonScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 10),
                           Text(
-                            'Camera capture is intentionally locked until the verified scan pipeline is connected. Manual search remains live and only uses ParkPal records.',
+                            'Report signs with measured GPS, search verified restrictions, and let Atlas combine the evidence ParkPal already holds.',
                             style: ParkPalText.body(
                               color: Colors.white.withValues(alpha: 0.74),
                               height: 1.45,
@@ -95,24 +103,24 @@ class ScanComingSoonScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 22),
                           const _ScanCapability(
-                            label: 'Image capture',
-                            state: 'Secured',
-                            active: false,
+                            label: 'GPS sign reports',
+                            state: 'Live',
+                            active: true,
                           ),
                           const _ScanCapability(
-                            label: 'Reading sign text',
-                            state: 'IRIS pipeline',
-                            active: false,
+                            label: 'Manual restriction search',
+                            state: 'Live',
+                            active: true,
                           ),
                           const _ScanCapability(
                             label: 'Matching zone & council rules',
-                            state: 'Repository ready',
+                            state: 'Live',
                             active: true,
                           ),
                           const _ScanCapability(
-                            label: 'Calculating move-by time',
-                            state: 'Search ready',
-                            active: true,
+                            label: 'Automatic sign interpretation',
+                            state: 'Secured',
+                            active: false,
                           ),
                         ],
                       ),
@@ -121,10 +129,37 @@ class ScanComingSoonScreen extends StatelessWidget {
                   const Spacer(),
                   SizedBox(
                     width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.search_rounded),
-                      label: const Text('Search manually'),
+                    child: Column(
+                      children: [
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const SignCaptureScreen(),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.add_a_photo_rounded),
+                            label: const Text('Report a sign'),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: onSearchManually ??
+                                () {
+                                  if (Navigator.of(context).canPop()) {
+                                    Navigator.of(context).pop();
+                                  }
+                                },
+                            icon: const Icon(Icons.search_rounded),
+                            label: const Text('Search manually'),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],

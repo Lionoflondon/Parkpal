@@ -84,7 +84,9 @@ class _ParkPalShellState extends State<ParkPalShell> {
           onOpenScan: () => _go(ParkPalPlatformRoutes.iris),
           onOpenHistory: () => _go(ParkPalPlatformRoutes.savedPlaces),
         ),
-      ParkPalPlatformRoutes.iris => const ScanComingSoonScreen(),
+      ParkPalPlatformRoutes.iris => ScanComingSoonScreen(
+          onSearchManually: () => _go(ParkPalPlatformRoutes.find),
+        ),
       ParkPalPlatformRoutes.savedPlaces => const ParkingHistoryScreen(),
       ParkPalPlatformRoutes.account => const AccountScreen(),
       ParkPalPlatformRoutes.settings => const AccountScreen(

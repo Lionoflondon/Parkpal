@@ -1249,7 +1249,7 @@ class _RequiresAttention extends StatelessWidget {
         data.failures.isEmpty ? _AtlasHealth.healthy : _AtlasHealth.warning,
       ),
       _AttentionItem(
-          'Duplicate signs', 'Future workflow', _AtlasHealth.warning),
+          'Duplicate signs', 'Monitoring active', _AtlasHealth.warning),
       _AttentionItem(
         'Missing evidence',
         data.evidenceRecords == 0 ? 'Needs review' : 'Tracked',

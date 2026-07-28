@@ -4,7 +4,7 @@ ParkPal is a standalone Circum company product for parking, loading, and roadsid
 
 Positioning: **Know before you park.**
 
-This repository currently contains the Firebase database foundation and the first minimal MVP app shell. It does not include payments, subscriptions, AI interpretation, or Circum integration.
+This repository contains the ParkPal customer platform, admin foundation, Atlas/IRIS parking intelligence services, and a Stripe-ready billing mechanism for parking intelligence products. It does not include parking booking/reservation behaviour or Circum integration.
 
 ## What is included
 
@@ -19,6 +19,7 @@ This repository currently contains the Firebase database foundation and the firs
 - Dart model definitions for the planned Flutter app.
 - Storage path constants for sign and report images.
 - Environment config pattern using Dart compile-time values.
+- Stripe billing foundation using Firebase Functions, Secret Manager, Checkout, Billing Portal, webhooks, subscription entitlement records, invoice records, and a payment ledger.
 - Transparent London starter records for:
   - Kensington Road
   - Westminster loading bay
@@ -126,6 +127,30 @@ node tools/import_london_seed.js --project parkpal-prod
 
 The importer is merge-only and does not delete existing records.
 
+## Stripe billing setup
+
+ParkPal payments are for parking intelligence products only. They must not be used to sell parking spaces, reservations, or car-park bookings.
+
+Configure production secrets in the ParkPal Firebase project before deploying payment functions:
+
+```sh
+firebase functions:secrets:set STRIPE_SECRET_KEY --project parkpal-prod
+firebase functions:secrets:set STRIPE_WEBHOOK_SECRET --project parkpal-prod
+firebase functions:secrets:set PARKPAL_STRIPE_PRICE_IDS --project parkpal-prod
+```
+
+`PARKPAL_STRIPE_PRICE_IDS` uses comma-separated `planId:priceId` pairs, for example:
+
+```text
+parkpal_plus:price_123,parkpal_fleet:price_456
+```
+
+Deploy the Stripe mechanism only after the secrets and Stripe webhook endpoint are configured:
+
+```sh
+firebase deploy --only functions:createParkPalStripeCheckoutSession,functions:createParkPalStripeBillingPortalSession,functions:parkPalStripeWebhook --project parkpal-prod
+```
+
 ## Security model draft
 
 - Public map intelligence can be read.
@@ -167,7 +192,6 @@ Expected contributor role claims:
 ## Not included yet
 
 - Full mobile UI.
-- Subscriptions or payments.
 - AI / IRIS sign interpretation calls.
 - Circum account or platform integration.
-- Production deployment.
+- Live camera sign interpretation.
