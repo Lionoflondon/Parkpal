@@ -1,5 +1,4 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'parkpal_auth_service.dart';
@@ -30,7 +29,8 @@ class _ParkPalPublicShellState extends State<ParkPalPublicShell> {
 
   @override
   Widget build(BuildContext context) {
-    final showAuth = _routeName == ParkPalPlatformRoutes.signIn ||
+    final showAuth =
+        _routeName == ParkPalPlatformRoutes.signIn ||
         _routeName == ParkPalPlatformRoutes.createAccount ||
         (ParkPalPlatformRoutes.isAppRoute(_routeName) &&
             _routeName != ParkPalPlatformRoutes.iris);
@@ -144,40 +144,40 @@ class _PublicContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final copy = switch (routeName) {
       ParkPalPlatformRoutes.features => (
-          'Features',
-          'Parking intelligence, evidence records, sign certainty and map-led guidance in one calm platform.',
-          'Explore live checks, saved evidence, reports, notifications and Pioneer contributions.',
-        ),
+        'Features',
+        'Parking intelligence, evidence records, sign certainty and map-led guidance in one calm platform.',
+        'Explore live checks, saved evidence, reports, notifications and Pioneer contributions.',
+      ),
       ParkPalPlatformRoutes.iris => (
-          'IRIS',
-          'The ParkPal intelligence layer for signs, council rules, Atlas evidence and uncertainty.',
-          'IRIS explains why a parking answer is safe, risky or unknown without inventing confidence.',
-        ),
+        'IRIS',
+        'The ParkPal intelligence layer for signs, council rules, Atlas evidence and uncertainty.',
+        'IRIS explains why a parking answer is safe, risky or unknown without inventing confidence.',
+      ),
       ParkPalPlatformRoutes.atlas => (
-          'Atlas',
-          'A living parking intelligence map built from official data, verified signs and field evidence.',
-          'Atlas explains what ParkPal knows, how confident it is, and what evidence supports the answer.',
-        ),
+        'Atlas',
+        'A living parking intelligence map built from official data, verified signs and field evidence.',
+        'Atlas explains what ParkPal knows, how confident it is, and what evidence supports the answer.',
+      ),
       ParkPalPlatformRoutes.pioneer => (
-          'Pioneer',
-          'Help verify streets, signs and changing restrictions across the UK.',
-          'Pioneer missions turn local checks into better parking certainty.',
-        ),
+        'Pioneer',
+        'Help verify streets, signs and changing restrictions across the UK.',
+        'Pioneer missions turn local checks into better parking certainty.',
+      ),
       ParkPalPlatformRoutes.business => (
-          'Business',
-          'Parking certainty for couriers, tradespeople, riders and fleets.',
-          'Reduce tickets, wasted time and operational uncertainty with ParkPal intelligence.',
-        ),
+        'Business',
+        'Parking certainty for couriers, tradespeople, riders and fleets.',
+        'Reduce tickets, wasted time and operational uncertainty with ParkPal intelligence.',
+      ),
       ParkPalPlatformRoutes.support => (
-          'Support',
-          'Evidence-first help for unclear restrictions, reports and appeal preparation.',
-          'ParkPal keeps every check transparent and time-stamped.',
-        ),
+        'Support',
+        'Evidence-first help for unclear restrictions, reports and appeal preparation.',
+        'ParkPal keeps every check transparent and time-stamped.',
+      ),
       _ => (
-          'Certainty before you walk away.',
-          'Know before you park.',
-          'Search a road, check restrictions, save evidence and let IRIS explain the confidence behind every parking answer.',
-        ),
+        'Certainty before you walk away.',
+        'Know before you park.',
+        'Search a road, check restrictions, save evidence and let IRIS explain the confidence behind every parking answer.',
+      ),
     };
 
     return Column(
@@ -292,7 +292,6 @@ class _AuthPanelState extends State<_AuthPanel> {
   final _password = TextEditingController();
   bool _loading = false;
   String? _error;
-  final List<String> _authTrace = [];
 
   @override
   void dispose() {
@@ -312,47 +311,21 @@ class _AuthPanelState extends State<_AuthPanel> {
     setState(() {
       _loading = true;
       _error = null;
-      _authTrace.clear();
     });
     try {
-      _addAuthTrace('submit(): started. authDebug=$_authDebugEnabled');
-      _addAuthTrace('submit(): Uri=${Uri.base}');
-      _addAuthTrace('submit(): route=${ModalRoute.of(context)?.settings.name}');
       final auth = widget.authService ?? ParkPalAuthService();
       if (widget.createAccount) {
-        _addAuthTrace('submit(): createAccount path selected');
         await auth.createAccount(email: _email.text, password: _password.text);
       } else {
-        _addAuthTrace('submit(): signIn path selected');
-        await auth.signIn(
-          email: _email.text,
-          password: _password.text,
-          trace: _addAuthTrace,
-        );
+        await auth.signIn(email: _email.text, password: _password.text);
       }
-      _addAuthTrace('submit(): auth call completed without throwing');
       if (!mounted) return;
       Navigator.of(
         context,
       ).pushReplacementNamed(ParkPalPlatformRoutes.dashboard);
-    } catch (error, stackTrace) {
-      if (kDebugMode) {
-        if (error is FirebaseAuthException) {
-          debugPrint(
-            'ParkPal auth panel FirebaseAuthException: '
-            'code=${error.code}, message=${error.message}, '
-            'runtimeType=${error.runtimeType}',
-          );
-        } else {
-          debugPrint(
-            'ParkPal auth panel raw exception: '
-            'runtimeType=${error.runtimeType}, value=$error',
-          );
-        }
-        debugPrint('ParkPal auth panel stack trace: $stackTrace');
-      }
+    } catch (error) {
       if (!mounted) return;
-      setState(() => _error = _friendlyAuthError(error, stackTrace));
+      setState(() => _error = _friendlyAuthMessage(error));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -409,26 +382,6 @@ class _AuthPanelState extends State<_AuthPanel> {
                   style: ParkPalText.body(color: ParkPalColors.red),
                 ),
               ],
-              if (kDebugMode && _authDebugEnabled && _authTrace.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: ParkPalColors.ink.withValues(alpha: 0.06),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: ParkPalColors.line),
-                  ),
-                  child: Text(
-                    'Auth trace\n${_authTrace.join('\n')}',
-                    style: ParkPalText.mono(
-                      fontSize: 11,
-                      color: ParkPalColors.ink,
-                      height: 1.35,
-                    ),
-                  ),
-                ),
-              ],
               const SizedBox(height: 18),
               SizedBox(
                 width: double.infinity,
@@ -438,8 +391,8 @@ class _AuthPanelState extends State<_AuthPanel> {
                     _loading
                         ? 'Please wait…'
                         : widget.createAccount
-                            ? 'Create Account'
-                            : 'Sign In',
+                        ? 'Create Account'
+                        : 'Sign In',
                   ),
                 ),
               ),
@@ -450,31 +403,12 @@ class _AuthPanelState extends State<_AuthPanel> {
     );
   }
 
-  String _friendlyAuthError(Object error, StackTrace stackTrace) {
-    final friendly = _friendlyAuthMessage(error);
-    if (!kDebugMode) return friendly;
-
-    if (error is FirebaseAuthException) {
-      return '$friendly\n\nDebug FirebaseAuthException\n'
-          'Code: ${error.code}\n'
-          'Message: ${error.message ?? 'No message provided.'}\n'
-          'Runtime type: ${error.runtimeType}\n'
-          'Stack trace:\n$stackTrace';
-    }
-
-    return '$friendly\n\nDebug raw exception\n'
-        'Runtime type: ${error.runtimeType}\n'
-        'Value: $error\n'
-        'Stack trace:\n$stackTrace';
-  }
-
   String _friendlyAuthMessage(Object error) {
     if (error is FirebaseAuthException) {
       return switch (error.code) {
         'invalid-credential' ||
         'wrong-password' ||
-        'user-not-found' =>
-          'Email or password is incorrect.',
+        'user-not-found' => 'Email or password is incorrect.',
         'invalid-email' => 'Enter a valid email address.',
         'email-already-in-use' => 'This email already has a ParkPal account.',
         'weak-password' => 'Choose a stronger password.',
@@ -493,20 +427,6 @@ class _AuthPanelState extends State<_AuthPanel> {
     }
 
     return 'ParkPal could not authenticate this account.';
-  }
-
-  bool get _authDebugEnabled => Uri.base.queryParameters['authDebug'] == '1';
-
-  void _addAuthTrace(String message) {
-    final line = '${DateTime.now().toIso8601String()}  $message';
-    if (kDebugMode) {
-      debugPrint('ParkPal auth trace: $line');
-    }
-    if (!mounted) {
-      _authTrace.add(line);
-      return;
-    }
-    setState(() => _authTrace.add(line));
   }
 }
 

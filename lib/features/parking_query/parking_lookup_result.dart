@@ -92,13 +92,31 @@ class ParkingLookupResult {
 
   String get evidenceSourceLabel {
     return switch (evidenceSource) {
-      ParkingEvidenceSource.adminVerifiedRule => 'admin-verified rule',
-      ParkingEvidenceSource.seedData => 'seed data',
-      ParkingEvidenceSource.verifiedSign => 'verified sign',
-      ParkingEvidenceSource.councilData => 'council data',
-      ParkingEvidenceSource.parkpalConnect => 'ParkPal Connect source',
-      ParkingEvidenceSource.userReport => 'user report',
-      ParkingEvidenceSource.none => 'none',
+      ParkingEvidenceSource.adminVerifiedRule => 'Verified ParkPal rule',
+      ParkingEvidenceSource.seedData => 'ParkPal starter data',
+      ParkingEvidenceSource.verifiedSign => 'Verified street sign',
+      ParkingEvidenceSource.councilData => 'Council information',
+      ParkingEvidenceSource.parkpalConnect => 'Official source',
+      ParkingEvidenceSource.userReport => 'Verified community report',
+      ParkingEvidenceSource.none => 'No evidence yet',
     };
+  }
+
+  String get confidenceLabel {
+    final percentage = (confidenceScore * 100).round().clamp(0, 100);
+    if (canPark == CanParkStatus.unknown || percentage == 0) return 'Low';
+    if (percentage >= 90) return 'High';
+    if (percentage >= 70) return 'Medium';
+    return 'Low';
+  }
+
+  String get customerSafetyNote {
+    if (canPark == CanParkStatus.unknown) {
+      return 'ParkPal does not have enough verified information here yet. Check the sign in front of you before parking.';
+    }
+    if (riskLevel.toLowerCase() == 'high') {
+      return 'High-risk restrictions may apply here. Do not walk away unless the street sign confirms it is safe.';
+    }
+    return 'ParkPal guidance is informational. Always check the street sign before parking.';
   }
 }

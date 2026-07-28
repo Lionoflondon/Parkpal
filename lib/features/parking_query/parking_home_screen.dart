@@ -155,7 +155,7 @@ class ParkingResultCard extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        'IRIS parking answer',
+                        'Parking here',
                         style: ParkPalText.mono(
                           color: ParkPalColors.mutedTwo,
                           fontSize: 11,
@@ -169,6 +169,8 @@ class ParkingResultCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 18),
+            _CustomerConfidencePanel(result: result, statusColor: statusColor),
+            const SizedBox(height: 16),
             Text(
               result.ruleSummary,
               style: ParkPalText.body(
@@ -220,6 +222,28 @@ class ParkingResultCard extends StatelessWidget {
                 height: 1.4,
               ),
             ),
+            const SizedBox(height: 14),
+            _SafetyNotice(result: result, color: statusColor),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Issue reporting will open from this result soon.',
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.report_problem_rounded),
+                    label: const Text('Report issue'),
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -240,6 +264,104 @@ class ParkingResultCard extends StatelessWidget {
       CanParkStatus.no => 'Do not park',
       CanParkStatus.unknown => 'Check restrictions',
     };
+  }
+}
+
+class _CustomerConfidencePanel extends StatelessWidget {
+  const _CustomerConfidencePanel({
+    required this.result,
+    required this.statusColor,
+  });
+
+  final ParkingLookupResult result;
+  final Color statusColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: statusColor.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: statusColor.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.verified_user_rounded, color: statusColor, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Parking confidence: ${result.confidenceLabel}',
+                  style: ParkPalText.body(
+                    color: ParkPalColors.ink,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _confidenceCopy(result),
+                  style: ParkPalText.body(
+                    color: ParkPalColors.muted,
+                    fontSize: 13,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _confidenceCopy(ParkingLookupResult result) {
+    if (result.canPark == CanParkStatus.unknown) {
+      return 'We need verified street or council evidence before giving a clear answer.';
+    }
+    return 'This answer is based on ${result.evidenceSourceLabel.toLowerCase()} and the current ParkPal intelligence available for this location.';
+  }
+}
+
+class _SafetyNotice extends StatelessWidget {
+  const _SafetyNotice({required this.result, required this.color});
+
+  final ParkingLookupResult result;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: ParkPalColors.cream.withValues(alpha: 0.82),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_rounded, color: color, size: 21),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              result.customerSafetyNote,
+              style: ParkPalText.body(
+                color: ParkPalColors.muted,
+                fontSize: 13,
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -803,8 +925,9 @@ class _RecentHistoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final summary =
-        entry.ruleSummary.isEmpty ? entry.resultStatus : entry.ruleSummary;
+    final summary = entry.ruleSummary.isEmpty
+        ? entry.resultStatus
+        : entry.ruleSummary;
 
     return Container(
       padding: const EdgeInsets.all(15),
@@ -903,10 +1026,7 @@ class _GlowOrb extends StatelessWidget {
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-      ),
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
     );
   }
 }
@@ -934,19 +1054,19 @@ class _MapPreviewPainter extends CustomPainter {
     final roads = [
       [
         Offset(-20, size.height * .30),
-        Offset(size.width * .92, size.height * .18)
+        Offset(size.width * .92, size.height * .18),
       ],
       [
         Offset(size.width * .08, size.height + 18),
-        Offset(size.width * .38, -18)
+        Offset(size.width * .38, -18),
       ],
       [
         Offset(size.width * .62, size.height + 20),
-        Offset(size.width * .88, -20)
+        Offset(size.width * .88, -20),
       ],
       [
         Offset(-10, size.height * .74),
-        Offset(size.width + 10, size.height * .62)
+        Offset(size.width + 10, size.height * .62),
       ],
     ];
 
@@ -968,12 +1088,21 @@ class _MapPreviewPainter extends CustomPainter {
       );
     }
 
-    _drawPin(canvas, Offset(size.width * .38, size.height * .42),
-        ParkPalColors.safeGreen);
-    _drawPin(canvas, Offset(size.width * .70, size.height * .28),
-        ParkPalColors.amber);
     _drawPin(
-        canvas, Offset(size.width * .58, size.height * .68), ParkPalColors.red);
+      canvas,
+      Offset(size.width * .38, size.height * .42),
+      ParkPalColors.safeGreen,
+    );
+    _drawPin(
+      canvas,
+      Offset(size.width * .70, size.height * .28),
+      ParkPalColors.amber,
+    );
+    _drawPin(
+      canvas,
+      Offset(size.width * .58, size.height * .68),
+      ParkPalColors.red,
+    );
 
     final ring = Paint()
       ..style = PaintingStyle.stroke
