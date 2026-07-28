@@ -467,7 +467,7 @@ class ParkPalAdminDataService {
     return {
       'maximumParkingDurationMinutes': 120,
       'gracePeriodMinutes': 10,
-      'cancellationRules': 'No booking flow in ParkPal. Reserved for future.',
+      'cancellationRules': 'Not used by ParkPal intelligence workflows.',
       'bookingExtensionsEnabled': false,
       'autoReleaseExpiredBookings': false,
       'stripeStatus': 'not_configured',

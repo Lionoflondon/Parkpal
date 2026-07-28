@@ -8,6 +8,7 @@ import '../history/parking_history_service.dart';
 import '../parking_intelligence/current_location_service.dart';
 import 'parking_lookup_result.dart';
 import 'parking_query_service.dart';
+import 'parking_report_service.dart';
 
 class ParkingHomeScreen extends StatefulWidget {
   const ParkingHomeScreen({this.onOpenScan, this.onOpenHistory, super.key});
@@ -276,15 +277,7 @@ class ParkingResultCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Issue reporting will open from this result soon.',
-                          ),
-                        ),
-                      );
-                    },
+                    onPressed: () => _showReportIssueDialog(context),
                     icon: const Icon(Icons.report_problem_rounded),
                     label: const Text('Report issue'),
                   ),
@@ -295,6 +288,89 @@ class ParkingResultCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _showReportIssueDialog(BuildContext context) async {
+    final controller = TextEditingController();
+    var submitting = false;
+    final messenger = ScaffoldMessenger.of(context);
+
+    final submitted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Report an issue'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Tell ParkPal what looks wrong. Reports are reviewed before changing parking intelligence.',
+                    style: ParkPalText.body(
+                      color: ParkPalColors.muted,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: controller,
+                    minLines: 3,
+                    maxLines: 5,
+                    textInputAction: TextInputAction.newline,
+                    decoration: const InputDecoration(
+                      hintText: 'Example: the sign says permit holders only.',
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: submitting
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: submitting
+                      ? null
+                      : () async {
+                          setDialogState(() => submitting = true);
+                          final ok = await ParkingReportService().submitIssue(
+                            description: controller.text,
+                          );
+                          if (!dialogContext.mounted) return;
+                          Navigator.of(dialogContext).pop(ok);
+                        },
+                  child: submitting
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Submit'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    controller.dispose();
+
+    if (submitted == true) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Report submitted for review.')),
+      );
+    } else if (submitted == null) {
+      return;
+    } else {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Could not submit report. Please try again.'),
+        ),
+      );
+    }
   }
 
   IconData _statusIcon(CanParkStatus status) {

@@ -32,40 +32,6 @@ const sources = [
     notes:
       "Starter Socrata source. Dataset appears hosted by Camden but labelled Westminster Parking Spaces; verify ownership before enabling.",
   },
-  {
-    councilId: "london_arcgis_placeholder",
-    name: "London ArcGIS parking restrictions placeholder",
-    sourceType: "arcgis_featureserver",
-    baseUrl: "https://example.invalid/arcgis/rest/services/Parking/FeatureServer",
-    layerIndex: 0,
-    restrictionTypes: ["other"],
-    active: false,
-    priority: 500,
-    refreshFrequency: "manual",
-    notes: "Placeholder only — verify real ArcGIS endpoint before enabling.",
-  },
-  {
-    councilId: "direct_csv_placeholder",
-    name: "Direct CSV parking restrictions placeholder",
-    sourceType: "direct_csv",
-    baseUrl: "https://example.invalid/parking-restrictions.csv",
-    restrictionTypes: ["other"],
-    active: false,
-    priority: 600,
-    refreshFrequency: "manual",
-    notes: "Placeholder only — verify CSV URL and field mapping before enabling.",
-  },
-  {
-    councilId: "pdf_placeholder",
-    name: "PDF TRO parking restrictions placeholder",
-    sourceType: "pdf",
-    baseUrl: "https://example.invalid/parking-order.pdf",
-    restrictionTypes: ["other"],
-    active: false,
-    priority: 700,
-    refreshFrequency: "manual",
-    notes: "PDF imports are low confidence and always require review.",
-  },
 ];
 
 async function main() {

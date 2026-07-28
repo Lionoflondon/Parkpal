@@ -67,19 +67,32 @@
       "postcodeArea": "W8",
       "country": "UK",
       "geoBounds": {
-        "northEast": { "latitude": 51.5029, "longitude": -0.1836 },
-        "southWest": { "latitude": 51.5002, "longitude": -0.1972 }
+        "northEast": {
+          "latitude": 51.5029,
+          "longitude": -0.1836
+        },
+        "southWest": {
+          "latitude": 51.5002,
+          "longitude": -0.1972
+        }
       },
-      "centrePoint": { "latitude": 51.5017, "longitude": -0.1905 },
-      "knownRestrictions": ["shared-use bay", "paid parking", "controlled hours"],
+      "centrePoint": {
+        "latitude": 51.5017,
+        "longitude": -0.1905
+      },
+      "knownRestrictions": [
+        "shared-use bay",
+        "paid parking",
+        "controlled hours"
+      ],
       "parkingRisk": "low",
       "loadingRisk": "medium",
-      "defaultSummary": "Verified starter intelligence: shared-use parking is available in signed bays. Check the exact bay sign before leaving the vehicle.",
+      "defaultSummary": "ParkPal starter intelligence: shared-use parking is available in signed bays. Check the exact bay sign before leaving the vehicle.",
       "nearestLegalAlternative": "Use signed pay-by-phone/shared-use bays on nearby side streets if the main road bay is unavailable.",
       "signCount": 1,
-      "verifiedSignCount": 1,
+      "verifiedSignCount": 0,
       "lastVerifiedAt": "2026-07-28T00:00:00.000Z",
-      "confidenceScore": 1,
+      "confidenceScore": 0.7,
       "createdAt": "2026-06-27T00:00:00.000Z",
       "updatedAt": "2026-07-28T00:00:00.000Z"
     },
@@ -92,19 +105,32 @@
       "postcodeArea": "W1",
       "country": "UK",
       "geoBounds": {
-        "northEast": { "latitude": 51.5167, "longitude": -0.131 },
-        "southWest": { "latitude": 51.5125, "longitude": -0.151 }
+        "northEast": {
+          "latitude": 51.5167,
+          "longitude": -0.131
+        },
+        "southWest": {
+          "latitude": 51.5125,
+          "longitude": -0.151
+        }
       },
-      "centrePoint": { "latitude": 51.5145, "longitude": -0.1419 },
-      "knownRestrictions": ["bus restrictions", "loading controls", "high enforcement"],
+      "centrePoint": {
+        "latitude": 51.5145,
+        "longitude": -0.1419
+      },
+      "knownRestrictions": [
+        "bus restrictions",
+        "loading controls",
+        "high enforcement"
+      ],
       "parkingRisk": "high",
       "loadingRisk": "high",
-      "defaultSummary": "Verified starter intelligence: this is a high-restriction central London corridor. Do not park unless a signed bay explicitly allows it.",
+      "defaultSummary": "ParkPal starter intelligence: this is a high-restriction central London corridor. Do not park unless a signed bay explicitly allows it.",
       "nearestLegalAlternative": "Use signed bays on nearby streets only after checking local signs.",
       "signCount": 1,
-      "verifiedSignCount": 1,
+      "verifiedSignCount": 0,
       "lastVerifiedAt": "2026-07-28T00:00:00.000Z",
-      "confidenceScore": 1,
+      "confidenceScore": 0.7,
       "createdAt": "2026-07-28T00:00:00.000Z",
       "updatedAt": "2026-07-28T00:00:00.000Z"
     },
@@ -117,19 +143,32 @@
       "postcodeArea": "NW1",
       "country": "UK",
       "geoBounds": {
-        "northEast": { "latitude": 51.544, "longitude": -0.141 },
-        "southWest": { "latitude": 51.536, "longitude": -0.146 }
+        "northEast": {
+          "latitude": 51.544,
+          "longitude": -0.141
+        },
+        "southWest": {
+          "latitude": 51.536,
+          "longitude": -0.146
+        }
       },
-      "centrePoint": { "latitude": 51.5406, "longitude": -0.1432 },
-      "knownRestrictions": ["controlled parking", "loading controls", "permit zones"],
+      "centrePoint": {
+        "latitude": 51.5406,
+        "longitude": -0.1432
+      },
+      "knownRestrictions": [
+        "controlled parking",
+        "loading controls",
+        "permit zones"
+      ],
       "parkingRisk": "medium",
       "loadingRisk": "medium",
-      "defaultSummary": "Verified starter intelligence: controlled parking and loading rules vary by bay. Use only signed bays and check the plate.",
+      "defaultSummary": "ParkPal starter intelligence: controlled parking and loading rules vary by bay. Use only signed bays and check the plate.",
       "nearestLegalAlternative": "Look for signed shared-use bays off the high street.",
       "signCount": 1,
-      "verifiedSignCount": 1,
+      "verifiedSignCount": 0,
       "lastVerifiedAt": "2026-07-28T00:00:00.000Z",
-      "confidenceScore": 1,
+      "confidenceScore": 0.7,
       "createdAt": "2026-07-28T00:00:00.000Z",
       "updatedAt": "2026-07-28T00:00:00.000Z"
     }
@@ -142,12 +181,30 @@
       "borough": "Camden",
       "council": "Camden Council",
       "geoPolygon": [
-        { "latitude": 51.545, "longitude": -0.151 },
-        { "latitude": 51.545, "longitude": -0.137 },
-        { "latitude": 51.536, "longitude": -0.137 },
-        { "latitude": 51.536, "longitude": -0.151 }
+        {
+          "latitude": 51.545,
+          "longitude": -0.151
+        },
+        {
+          "latitude": 51.545,
+          "longitude": -0.137
+        },
+        {
+          "latitude": 51.536,
+          "longitude": -0.137
+        },
+        {
+          "latitude": 51.536,
+          "longitude": -0.151
+        }
       ],
-      "activeDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+      "activeDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
       "activeHours": "08:30-18:30",
       "rulesSummary": "Resident permit holders and paid/shared-use bays operate during zone hours.",
       "permitRequired": true,
@@ -155,7 +212,7 @@
       "maxStayMinutes": 120,
       "cameraEnforced": false,
       "source": "admin_entry",
-      "confidenceScore": 0.98,
+      "confidenceScore": 0.7,
       "createdAt": "2026-06-27T00:00:00.000Z",
       "updatedAt": "2026-07-28T00:00:00.000Z"
     },
@@ -166,12 +223,32 @@
       "borough": "Westminster",
       "council": "Transport for London",
       "geoPolygon": [
-        { "latitude": 51.5205, "longitude": -0.188 },
-        { "latitude": 51.5205, "longitude": -0.17 },
-        { "latitude": 51.516, "longitude": -0.17 },
-        { "latitude": 51.516, "longitude": -0.188 }
+        {
+          "latitude": 51.5205,
+          "longitude": -0.188
+        },
+        {
+          "latitude": 51.5205,
+          "longitude": -0.17
+        },
+        {
+          "latitude": 51.516,
+          "longitude": -0.17
+        },
+        {
+          "latitude": 51.516,
+          "longitude": -0.188
+        }
       ],
-      "activeDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+      "activeDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday"
+      ],
       "activeHours": "24 hours unless signed bays say otherwise",
       "rulesSummary": "Red route controls apply. No stopping except where signed bays explicitly allow parking or loading.",
       "permitRequired": false,
@@ -179,7 +256,7 @@
       "maxStayMinutes": null,
       "cameraEnforced": true,
       "source": "admin_entry",
-      "confidenceScore": 0.98,
+      "confidenceScore": 0.7,
       "createdAt": "2026-06-27T00:00:00.000Z",
       "updatedAt": "2026-07-28T00:00:00.000Z"
     },
@@ -190,12 +267,30 @@
       "borough": "Camden",
       "council": "Camden Council",
       "geoPolygon": [
-        { "latitude": 51.542, "longitude": -0.145 },
-        { "latitude": 51.542, "longitude": -0.141 },
-        { "latitude": 51.539, "longitude": -0.141 },
-        { "latitude": 51.539, "longitude": -0.145 }
+        {
+          "latitude": 51.542,
+          "longitude": -0.145
+        },
+        {
+          "latitude": 51.542,
+          "longitude": -0.141
+        },
+        {
+          "latitude": 51.539,
+          "longitude": -0.141
+        },
+        {
+          "latitude": 51.539,
+          "longitude": -0.145
+        }
       ],
-      "activeDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+      "activeDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
       "activeHours": "08:15-09:15, 15:00-16:00 during school term",
       "rulesSummary": "Motor vehicle access and stopping may be restricted during school street operating times.",
       "permitRequired": false,
@@ -203,7 +298,7 @@
       "maxStayMinutes": null,
       "cameraEnforced": true,
       "source": "admin_entry",
-      "confidenceScore": 0.98,
+      "confidenceScore": 0.7,
       "createdAt": "2026-06-27T00:00:00.000Z",
       "updatedAt": "2026-07-28T00:00:00.000Z"
     }
@@ -216,7 +311,10 @@
       "capturedByUserId": "seed-admin",
       "capturedByRole": "admin",
       "capturedAt": "2026-07-28T00:00:00.000Z",
-      "geoPoint": { "latitude": 51.5017, "longitude": -0.1905 },
+      "geoPoint": {
+        "latitude": 51.5017,
+        "longitude": -0.1905
+      },
       "latitude": 51.5017,
       "longitude": -0.1905,
       "streetName": "Kensington Road",
@@ -228,7 +326,14 @@
       "interpretedText": "Shared-use parking bay. Paid parking or resident permit required during controlled hours.",
       "restrictionType": "shared_use_bay",
       "restrictionSummary": "Shared-use parking is allowed in the signed bay during controlled hours with payment or a valid resident permit.",
-      "activeDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+      "activeDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday"
+      ],
       "activeHours": "08:30-18:30",
       "maxStayMinutes": 240,
       "noReturnMinutes": 60,
@@ -242,10 +347,10 @@
       "schoolStreet": false,
       "temporaryRestriction": false,
       "suspensionActive": false,
-      "confidenceScore": 0.98,
-      "verificationStatus": "verified",
-      "verifiedBy": "seed-admin",
-      "verifiedAt": "2026-07-28T00:00:00.000Z",
+      "confidenceScore": 0.7,
+      "verificationStatus": "pending",
+      "verifiedBy": null,
+      "verifiedAt": null,
       "source": "admin_entry",
       "createdAt": "2026-07-28T00:00:00.000Z",
       "updatedAt": "2026-07-28T00:00:00.000Z"
@@ -257,7 +362,10 @@
       "capturedByUserId": "seed-admin",
       "capturedByRole": "admin",
       "capturedAt": "2026-07-28T00:00:00.000Z",
-      "geoPoint": { "latitude": 51.511, "longitude": -0.135 },
+      "geoPoint": {
+        "latitude": 51.511,
+        "longitude": -0.135
+      },
       "latitude": 51.511,
       "longitude": -0.135,
       "streetName": "Westminster Loading Bay",
@@ -269,7 +377,14 @@
       "interpretedText": "Loading is allowed only for goods loading. General parking is not allowed.",
       "restrictionType": "loading_bay",
       "restrictionSummary": "Loading is allowed for up to 20 minutes. General parking is not allowed in this bay.",
-      "activeDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+      "activeDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday"
+      ],
       "activeHours": "08:30-18:30",
       "maxStayMinutes": 20,
       "noReturnMinutes": 60,
@@ -283,10 +398,10 @@
       "schoolStreet": false,
       "temporaryRestriction": false,
       "suspensionActive": false,
-      "confidenceScore": 0.98,
-      "verificationStatus": "verified",
-      "verifiedBy": "seed-admin",
-      "verifiedAt": "2026-07-28T00:00:00.000Z",
+      "confidenceScore": 0.7,
+      "verificationStatus": "pending",
+      "verifiedBy": null,
+      "verifiedAt": null,
       "source": "admin_entry",
       "createdAt": "2026-07-28T00:00:00.000Z",
       "updatedAt": "2026-07-28T00:00:00.000Z"
@@ -298,7 +413,10 @@
       "capturedByUserId": "seed-admin",
       "capturedByRole": "admin",
       "capturedAt": "2026-07-28T00:00:00.000Z",
-      "geoPoint": { "latitude": 51.5406, "longitude": -0.1432 },
+      "geoPoint": {
+        "latitude": 51.5406,
+        "longitude": -0.1432
+      },
       "latitude": 51.5406,
       "longitude": -0.1432,
       "streetName": "Camden High Street",
@@ -310,7 +428,13 @@
       "interpretedText": "Shared-use parking operates during controlled hours. Payment or valid permit required.",
       "restrictionType": "shared_use_bay",
       "restrictionSummary": "Shared-use parking is allowed during controlled hours with payment or a valid permit.",
-      "activeDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+      "activeDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
       "activeHours": "08:30-18:30",
       "maxStayMinutes": 120,
       "noReturnMinutes": 60,
@@ -324,10 +448,10 @@
       "schoolStreet": false,
       "temporaryRestriction": false,
       "suspensionActive": false,
-      "confidenceScore": 0.98,
-      "verificationStatus": "verified",
-      "verifiedBy": "seed-admin",
-      "verifiedAt": "2026-07-28T00:00:00.000Z",
+      "confidenceScore": 0.7,
+      "verificationStatus": "pending",
+      "verifiedBy": null,
+      "verifiedAt": null,
       "source": "admin_entry",
       "createdAt": "2026-07-28T00:00:00.000Z",
       "updatedAt": "2026-07-28T00:00:00.000Z"
@@ -339,7 +463,10 @@
       "capturedByUserId": "seed-admin",
       "capturedByRole": "admin",
       "capturedAt": "2026-07-28T00:00:00.000Z",
-      "geoPoint": { "latitude": 51.5145, "longitude": -0.1419 },
+      "geoPoint": {
+        "latitude": 51.5145,
+        "longitude": -0.1419
+      },
       "latitude": 51.5145,
       "longitude": -0.1419,
       "streetName": "Oxford Street",
@@ -351,7 +478,15 @@
       "interpretedText": "High-restriction corridor. Do not park unless a signed bay explicitly allows it.",
       "restrictionType": "restricted_corridor",
       "restrictionSummary": "Parking is not allowed here unless a specific signed bay permits it.",
-      "activeDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+      "activeDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday"
+      ],
       "activeHours": "24 hours unless signed otherwise",
       "maxStayMinutes": null,
       "noReturnMinutes": null,
@@ -365,10 +500,10 @@
       "schoolStreet": false,
       "temporaryRestriction": false,
       "suspensionActive": false,
-      "confidenceScore": 0.98,
-      "verificationStatus": "verified",
-      "verifiedBy": "seed-admin",
-      "verifiedAt": "2026-07-28T00:00:00.000Z",
+      "confidenceScore": 0.7,
+      "verificationStatus": "pending",
+      "verifiedBy": null,
+      "verifiedAt": null,
       "source": "admin_entry",
       "createdAt": "2026-07-28T00:00:00.000Z",
       "updatedAt": "2026-07-28T00:00:00.000Z"
@@ -380,7 +515,10 @@
       "capturedByUserId": "seed-admin",
       "capturedByRole": "admin",
       "capturedAt": "2026-07-28T00:00:00.000Z",
-      "geoPoint": { "latitude": 51.5184, "longitude": -0.1785 },
+      "geoPoint": {
+        "latitude": 51.5184,
+        "longitude": -0.1785
+      },
       "latitude": 51.5184,
       "longitude": -0.1785,
       "streetName": "A40 Westway",
@@ -392,7 +530,15 @@
       "interpretedText": "Red route controls apply. No stopping except in signed bays.",
       "restrictionType": "red_route",
       "restrictionSummary": "No stopping on the red route except where signs specifically allow parking or loading.",
-      "activeDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+      "activeDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday"
+      ],
       "activeHours": "24 hours unless signed bays say otherwise",
       "maxStayMinutes": null,
       "noReturnMinutes": null,
@@ -406,10 +552,10 @@
       "schoolStreet": false,
       "temporaryRestriction": false,
       "suspensionActive": false,
-      "confidenceScore": 0.98,
-      "verificationStatus": "verified",
-      "verifiedBy": "seed-admin",
-      "verifiedAt": "2026-07-28T00:00:00.000Z",
+      "confidenceScore": 0.7,
+      "verificationStatus": "pending",
+      "verifiedBy": null,
+      "verifiedAt": null,
       "source": "admin_entry",
       "createdAt": "2026-07-28T00:00:00.000Z",
       "updatedAt": "2026-07-28T00:00:00.000Z"
@@ -421,7 +567,10 @@
       "capturedByUserId": "seed-admin",
       "capturedByRole": "admin",
       "capturedAt": "2026-07-28T00:00:00.000Z",
-      "geoPoint": { "latitude": 51.5408, "longitude": -0.143 },
+      "geoPoint": {
+        "latitude": 51.5408,
+        "longitude": -0.143
+      },
       "latitude": 51.5408,
       "longitude": -0.143,
       "streetName": "Camden School Street",
@@ -433,7 +582,13 @@
       "interpretedText": "School street restrictions apply during morning and afternoon school periods.",
       "restrictionType": "school_street",
       "restrictionSummary": "Motor vehicle access and stopping may be restricted during school street operating times.",
-      "activeDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+      "activeDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
       "activeHours": "08:15-09:15, 15:00-16:00 during school term",
       "maxStayMinutes": null,
       "noReturnMinutes": null,
@@ -447,10 +602,10 @@
       "schoolStreet": true,
       "temporaryRestriction": false,
       "suspensionActive": false,
-      "confidenceScore": 0.98,
-      "verificationStatus": "verified",
-      "verifiedBy": "seed-admin",
-      "verifiedAt": "2026-07-28T00:00:00.000Z",
+      "confidenceScore": 0.7,
+      "verificationStatus": "pending",
+      "verifiedBy": null,
+      "verifiedAt": null,
       "source": "admin_entry",
       "createdAt": "2026-07-28T00:00:00.000Z",
       "updatedAt": "2026-07-28T00:00:00.000Z"
@@ -468,7 +623,14 @@
       "latitude": 51.5017,
       "longitude": -0.1905,
       "restrictionType": "shared_use_bay",
-      "activeDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+      "activeDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday"
+      ],
       "activeHours": "08:30-18:30",
       "parkingAllowed": true,
       "loadingAllowed": true,
@@ -477,14 +639,16 @@
       "noReturnMinutes": 60,
       "price": 1,
       "chargingPeriod": "During controlled hours",
-      "sourceName": "ParkPal verified starter intelligence",
+      "sourceName": "ParkPal starter intelligence",
       "sourceUrl": "parkpal://seed/london/kensington-road",
       "sourcePriority": 90,
       "sourceFreshness": "fresh",
-      "verificationState": "verifiedPlus",
-      "customerSafetyState": "confirmed",
-      "confidence": 0.98,
-      "warnings": [],
+      "verificationState": "limited",
+      "customerSafetyState": "likely",
+      "confidence": 0.7,
+      "warnings": [
+        "Starter intelligence only. Upgrade when authoritative council, D-TRO or verified field evidence is available."
+      ],
       "lastObservedAt": "2026-07-28T00:00:00.000Z",
       "lastImportedAt": "2026-07-28T00:00:00.000Z",
       "lastVerifiedAt": "2026-07-28T00:00:00.000Z",
@@ -501,7 +665,15 @@
       "latitude": 51.5145,
       "longitude": -0.1419,
       "restrictionType": "restricted_corridor",
-      "activeDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+      "activeDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday"
+      ],
       "activeHours": "24 hours unless signed otherwise",
       "parkingAllowed": false,
       "loadingAllowed": false,
@@ -512,14 +684,17 @@
       "busLane": true,
       "schoolStreet": false,
       "cameraEnforced": true,
-      "sourceName": "ParkPal verified starter intelligence",
+      "sourceName": "ParkPal starter intelligence",
       "sourceUrl": "parkpal://seed/london/oxford-street",
       "sourcePriority": 90,
       "sourceFreshness": "fresh",
-      "verificationState": "verifiedPlus",
-      "customerSafetyState": "confirmed",
-      "confidence": 0.98,
-      "warnings": ["High-restriction central London corridor."],
+      "verificationState": "limited",
+      "customerSafetyState": "likely",
+      "confidence": 0.7,
+      "warnings": [
+        "High-restriction central London corridor.",
+        "Starter intelligence only. Upgrade when authoritative council, D-TRO or verified field evidence is available."
+      ],
       "lastObservedAt": "2026-07-28T00:00:00.000Z",
       "lastImportedAt": "2026-07-28T00:00:00.000Z",
       "lastVerifiedAt": "2026-07-28T00:00:00.000Z",
@@ -536,7 +711,13 @@
       "latitude": 51.5406,
       "longitude": -0.1432,
       "restrictionType": "shared_use_bay",
-      "activeDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+      "activeDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
       "activeHours": "08:30-18:30",
       "parkingAllowed": true,
       "loadingAllowed": true,
@@ -545,14 +726,16 @@
       "noReturnMinutes": 60,
       "price": 1,
       "chargingPeriod": "During controlled hours",
-      "sourceName": "ParkPal verified starter intelligence",
+      "sourceName": "ParkPal starter intelligence",
       "sourceUrl": "parkpal://seed/london/camden-high-street",
       "sourcePriority": 90,
       "sourceFreshness": "fresh",
-      "verificationState": "verifiedPlus",
-      "customerSafetyState": "confirmed",
-      "confidence": 0.98,
-      "warnings": [],
+      "verificationState": "limited",
+      "customerSafetyState": "likely",
+      "confidence": 0.7,
+      "warnings": [
+        "Starter intelligence only. Upgrade when authoritative council, D-TRO or verified field evidence is available."
+      ],
       "lastObservedAt": "2026-07-28T00:00:00.000Z",
       "lastImportedAt": "2026-07-28T00:00:00.000Z",
       "lastVerifiedAt": "2026-07-28T00:00:00.000Z",
@@ -569,21 +752,31 @@
       "latitude": 51.511,
       "longitude": -0.135,
       "restrictionType": "loading_bay",
-      "activeDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+      "activeDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday"
+      ],
       "activeHours": "08:30-18:30",
       "parkingAllowed": false,
       "loadingAllowed": true,
       "permitRequired": false,
       "maxStayMinutes": 20,
       "noReturnMinutes": 60,
-      "sourceName": "ParkPal verified starter intelligence",
+      "sourceName": "ParkPal starter intelligence",
       "sourceUrl": "parkpal://seed/london/westminster-loading-bay",
       "sourcePriority": 90,
       "sourceFreshness": "fresh",
-      "verificationState": "verifiedPlus",
-      "customerSafetyState": "confirmed",
-      "confidence": 0.98,
-      "warnings": ["This is loading-only evidence, not general parking permission."],
+      "verificationState": "limited",
+      "customerSafetyState": "likely",
+      "confidence": 0.7,
+      "warnings": [
+        "This is loading-only evidence, not general parking permission.",
+        "Starter intelligence only. Upgrade when authoritative council, D-TRO or verified field evidence is available."
+      ],
       "lastObservedAt": "2026-07-28T00:00:00.000Z",
       "lastImportedAt": "2026-07-28T00:00:00.000Z",
       "lastVerifiedAt": "2026-07-28T00:00:00.000Z",
@@ -600,21 +793,32 @@
       "latitude": 51.5184,
       "longitude": -0.1785,
       "restrictionType": "red_route",
-      "activeDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+      "activeDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday"
+      ],
       "activeHours": "24 hours unless signed bays say otherwise",
       "parkingAllowed": false,
       "loadingAllowed": false,
       "permitRequired": false,
       "redRoute": true,
       "cameraEnforced": true,
-      "sourceName": "ParkPal verified starter intelligence",
+      "sourceName": "ParkPal starter intelligence",
       "sourceUrl": "parkpal://seed/london/a40-westway",
       "sourcePriority": 90,
       "sourceFreshness": "fresh",
-      "verificationState": "verifiedPlus",
-      "customerSafetyState": "confirmed",
-      "confidence": 0.98,
-      "warnings": ["Red route controls are high-risk. Only rely on a signed bay if present."],
+      "verificationState": "limited",
+      "customerSafetyState": "likely",
+      "confidence": 0.7,
+      "warnings": [
+        "Red route controls are high-risk. Only rely on a signed bay if present.",
+        "Starter intelligence only. Upgrade when authoritative council, D-TRO or verified field evidence is available."
+      ],
       "lastObservedAt": "2026-07-28T00:00:00.000Z",
       "lastImportedAt": "2026-07-28T00:00:00.000Z",
       "lastVerifiedAt": "2026-07-28T00:00:00.000Z",
@@ -631,21 +835,30 @@
       "latitude": 51.5408,
       "longitude": -0.143,
       "restrictionType": "school_street",
-      "activeDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+      "activeDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
       "activeHours": "08:15-09:15, 15:00-16:00 during school term",
       "parkingAllowed": false,
       "loadingAllowed": false,
       "permitRequired": false,
       "schoolStreet": true,
       "cameraEnforced": true,
-      "sourceName": "ParkPal verified starter intelligence",
+      "sourceName": "ParkPal starter intelligence",
       "sourceUrl": "parkpal://seed/london/camden-school-street",
       "sourcePriority": 90,
       "sourceFreshness": "fresh",
-      "verificationState": "verifiedPlus",
-      "customerSafetyState": "confirmed",
-      "confidence": 0.98,
-      "warnings": ["School street restrictions may depend on term dates and local exemptions."],
+      "verificationState": "limited",
+      "customerSafetyState": "likely",
+      "confidence": 0.7,
+      "warnings": [
+        "School street restrictions may depend on term dates and local exemptions.",
+        "Starter intelligence only. Upgrade when authoritative council, D-TRO or verified field evidence is available."
+      ],
       "lastObservedAt": "2026-07-28T00:00:00.000Z",
       "lastImportedAt": "2026-07-28T00:00:00.000Z",
       "lastVerifiedAt": "2026-07-28T00:00:00.000Z",

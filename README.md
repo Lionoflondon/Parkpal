@@ -12,14 +12,14 @@ This repository currently contains the Firebase database foundation and the firs
 - A manual "Can I park here?" location/road-name search flow.
 - A parking result card with risk, confidence, time window, payment status, and evidence source.
 - Firestore read/query logging service code with safe Unknown fallback.
-- Firebase config placeholders for Firestore, Storage, and local emulators.
+- Firebase config pattern for Firestore, Storage, and local emulators.
 - Strict draft Firestore security rules.
 - Strict draft Firebase Storage rules.
 - Firestore composite indexes for likely early queries.
 - Dart model definitions for the planned Flutter app.
 - Storage path constants for sign and report images.
 - Environment config pattern using Dart compile-time values.
-- Seed sample London records for:
+- Transparent London starter records for:
   - Kensington Road
   - Westminster loading bay
   - Camden permit zone
@@ -96,7 +96,7 @@ flutter analyze
 flutter run
 ```
 
-Try the seed-backed flow with a road such as `Kensington Road` after the seed data has been imported into the connected Firebase project.
+Try the starter-data flow with a road such as `Kensington Road` after the London starter records have been imported into the connected Firebase project.
 
 Future app startup can pass environment values with:
 
@@ -162,7 +162,7 @@ Expected contributor role claims:
 5. Review security rules with real auth/custom-claim flows.
 6. Add Firebase rules unit tests once the Firebase CLI and emulator tooling are installed.
 7. Generate real FlutterFire options once the Flutter app shell exists.
-8. Import seed data only into dev/emulator.
+8. Import starter data only when you need controlled ParkPal demo/test intelligence; authoritative records should come from D-TRO, council data, or verified field evidence.
 
 ## Not included yet
 

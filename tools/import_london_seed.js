@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
 /**
- * Merge-only importer for ParkPal verified London starter intelligence.
+ * Merge-only importer for ParkPal London starter intelligence.
  *
  * Usage:
  *   node tools/import_london_seed.js --project parkpal-prod
  *
  * The importer does not delete existing records. It merges deterministic seed
  * documents into the target project so customer search/GPS flows have a small,
- * transparent starter dataset.
+ * transparent starter dataset that can be upgraded by authoritative evidence.
  */
 
 const fs = require("fs");
@@ -196,7 +196,7 @@ async function importWithAdmin(recordsByCollection) {
 }
 
 async function main() {
-  console.log(`Importing ParkPal London seed into ${projectId}`);
+  console.log(`Importing ParkPal London starter data into ${projectId}`);
   let imported;
   try {
     imported = await importWithAdmin(seed);
