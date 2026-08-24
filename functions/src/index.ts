@@ -142,6 +142,23 @@ export const parkPalAdminCreditRoth = onCall(
   },
 );
 
+export const parkPalAdminDebitRoth = onCall({region: "europe-west2", enforceAppCheck: false}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+  await assertParkPalAdmin(request.auth.uid);
+  const data = request.data ?? {}; const userId = String(data.userId ?? "").trim(); const amountRoth = Number(data.amountRoth); const reason = String(data.reason ?? "").trim();
+  if (!userId || !reason || !Number.isSafeInteger(amountRoth) || amountRoth <= 0) throw new HttpsError("invalid-argument", "userId, positive integer amountRoth and reason are required.");
+  try { const result = await roth.mutate({userId, amountRoth, type: "admin_debit", direction: "debit", sourceType: "admin", sourceId: request.auth.uid, idempotencyKey: `admin_debit:${request.auth.uid}:${userId}:${String(data.idempotencyKey ?? reason)}`, description: reason, createdBy: request.auth.uid, approvedBy: request.auth.uid, reason}); await db.collection("parkpalPaymentAudit").add({action: "roth_admin_debit", actorUid: request.auth.uid, targetUid: userId, amountRoth, reason, ledgerId: result.entryId, createdAt: admin.firestore.FieldValue.serverTimestamp()}); return result; }
+  catch (error) { throw new HttpsError("failed-precondition", String(error)); }
+});
+
+export const parkPalInspectRoth = onCall({region: "europe-west2", enforceAppCheck: false}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+  await assertParkPalAdmin(request.auth.uid);
+  const userId = String(request.data?.userId ?? "").trim(); if (!userId) throw new HttpsError("invalid-argument", "userId is required.");
+  const [wallet, ledger, reservations] = await Promise.all([db.collection("parkpal_roth_wallets").doc(userId).get(), db.collection("parkpal_roth_ledger").where("userId", "==", userId).orderBy("createdAt", "desc").limit(100).get(), db.collection("parkpal_roth_reservations").where("userId", "==", userId).limit(100).get()]);
+  return {wallet: wallet.data() ?? null, ledger: ledger.docs.map((d) => d.data()), reservations: reservations.docs.map((d) => d.data())};
+});
+
 export const parkPalReconcileRoth = onCall(
   {region: "europe-west2", enforceAppCheck: false},
   async (request) => {

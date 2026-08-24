@@ -8,7 +8,7 @@ export const ROTH_RESERVATIONS = "parkpal_roth_reservations";
 export const ROTH_MINOR_PER_UNIT = 100;
 
 export type RothDirection = "credit" | "debit";
-export type RothType = "admin_credit" | "admin_debit" | "reward_credit" | "redemption_debit" | "refund_credit" | "reversal" | "adjustment";
+export type RothType = "admin_credit" | "admin_debit" | "reward_credit" | "redemption_debit" | "refund_credit" | "reversal" | "adjustment" | "reservation_hold" | "reservation_release" | "reservation_settlement";
 
 export interface RothMutation {
   userId: string;
@@ -87,10 +87,13 @@ export class RothFinanceService {
     const ledger = await this.db.collection(ROTH_LEDGER).where("userId", "==", userId).get();
     const expected = emptyWallet();
     for (const doc of ledger.docs) {
-      const d = doc.data(); const amount = Number(d.amountRoth ?? 0);
+      const d = doc.data(); const amount = Number(d.amountRoth ?? 0); const type = String(d.type ?? "");
+      if (type === "reservation_hold") { expected.availableRoth -= amount; expected.reservedRoth += amount; continue; }
+      if (type === "reservation_release") { expected.availableRoth += amount; expected.reservedRoth -= amount; continue; }
+      if (type === "reservation_settlement") { expected.reservedRoth -= amount; expected.lifetimeRedeemedRoth += amount; continue; }
       if (d.direction === "credit") { expected.availableRoth += amount; expected.lifetimeEarnedRoth += amount; }
       if (d.direction === "debit") { expected.availableRoth -= amount; expected.lifetimeRedeemedRoth += amount; }
-      if (d.type === "reversal") expected.lifetimeReversedRoth += amount;
+      if (type === "reversal") expected.lifetimeReversedRoth += amount;
     }
     const actual = {...emptyWallet(), ...(walletSnap.data() ?? {})} as RothWallet;
     const discrepancies = Object.keys(expected).filter((k) => Number((expected as any)[k] ?? 0) !== Number((actual as any)[k] ?? 0));
@@ -110,6 +113,7 @@ export class RothFinanceService {
       wallet.availableRoth -= amountRoth; wallet.reservedRoth += amountRoth; wallet.version++;
       tx.set(walletRef, {...wallet, updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true});
       tx.create(reservationRef, {reservationId, userId, amountRoth, status: "reserved", createdBy, createdAt: admin.firestore.FieldValue.serverTimestamp()});
+      tx.create(this.db.collection(ROTH_LEDGER).doc(`${reservationId}:hold`), {entryId: `${reservationId}:hold`, userId, type: "reservation_hold", direction: "debit", amountRoth, amountMinor: amountRoth * ROTH_MINOR_PER_UNIT, status: "settled", sourceType: "reservation", sourceId: reservationId, idempotencyKey: `roth_reserve:${reservationId}:${userId}`, description: "Roth reservation hold", createdBy, createdAt: admin.firestore.FieldValue.serverTimestamp(), effectiveAt: admin.firestore.FieldValue.serverTimestamp(), reversalOf: null, metadata: {reservationId}});
       return wallet;
     });
   }
@@ -139,6 +143,9 @@ export class RothFinanceService {
       else wallet.lifetimeRedeemedRoth += amount;
       wallet.version++;
       tx.set(walletRef, {...wallet, updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true});
+      const type = target === "released" ? "reservation_release" : "reservation_settlement";
+      const entryId = `${String(data.reservationId)}:${target}`;
+      tx.create(this.db.collection(ROTH_LEDGER).doc(entryId), {entryId, userId: String(data.userId), type, direction: target === "released" ? "credit" : "debit", amountRoth: amount, amountMinor: amount * ROTH_MINOR_PER_UNIT, status: "settled", sourceType: "reservation", sourceId: String(data.reservationId), idempotencyKey: `roth_${target}:${String(data.reservationId)}:${String(data.userId)}`, description: `Roth reservation ${target}`, createdBy: "system", createdAt: admin.firestore.FieldValue.serverTimestamp(), effectiveAt: admin.firestore.FieldValue.serverTimestamp(), reversalOf: `${String(data.reservationId)}:hold`, metadata: {reservationId: String(data.reservationId)}});
       tx.update(reservationRef, {status: target, completedAt: admin.firestore.FieldValue.serverTimestamp()});
       return wallet;
     });
