@@ -340,6 +340,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /parkpal_roth_reservations/{reservationId} {
+      allow get: if isParkPalAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isParkPalAdmin();
+      allow create, update, delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

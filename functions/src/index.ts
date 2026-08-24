@@ -151,6 +151,15 @@ export const parkPalAdminDebitRoth = onCall({region: "europe-west2", enforceAppC
   catch (error) { throw new HttpsError("failed-precondition", String(error)); }
 });
 
+export const parkPalAdminAdjustRoth = onCall({region: "europe-west2", enforceAppCheck: false}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+  await assertParkPalAdmin(request.auth.uid);
+  const data = request.data ?? {}; const userId = String(data.userId ?? "").trim(); const amountRoth = Number(data.amountRoth); const reason = String(data.reason ?? "").trim(); const direction = String(data.direction ?? "");
+  if (!userId || !reason || !["credit", "debit"].includes(direction) || !Number.isSafeInteger(amountRoth) || amountRoth <= 0) throw new HttpsError("invalid-argument", "userId, direction, positive integer amountRoth and reason are required.");
+  try { const result = await roth.mutate({userId, amountRoth, type: "adjustment", direction: direction as "credit" | "debit", sourceType: "admin_adjustment", sourceId: request.auth.uid, idempotencyKey: `admin_adjustment:${request.auth.uid}:${userId}:${String(data.idempotencyKey ?? reason)}`, description: reason, createdBy: request.auth.uid, approvedBy: request.auth.uid, reason, metadata: {direction, actorUid: request.auth.uid, targetUid: userId}}); await db.collection("parkpalPaymentAudit").add({action: "roth_admin_adjustment", actorUid: request.auth.uid, targetUid: userId, direction, amountRoth, reason, ledgerId: result.entryId, createdAt: admin.firestore.FieldValue.serverTimestamp()}); return result; }
+  catch (error) { throw new HttpsError("failed-precondition", String(error)); }
+});
+
 export const parkPalInspectRoth = onCall({region: "europe-west2", enforceAppCheck: false}, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
   await assertParkPalAdmin(request.auth.uid);
