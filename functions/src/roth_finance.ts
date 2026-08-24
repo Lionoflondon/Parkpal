@@ -4,6 +4,7 @@ export const ROTH_LEDGER = "parkpal_roth_ledger";
 export const ROTH_WALLETS = "parkpal_roth_wallets";
 export const ROTH_EVENTS = "parkpal_roth_events";
 export const ROTH_AUDIT = "parkpal_roth_audit";
+export const ROTH_RESERVATIONS = "parkpal_roth_reservations";
 export const ROTH_MINOR_PER_UNIT = 100;
 
 export type RothDirection = "credit" | "debit";
@@ -94,5 +95,62 @@ export class RothFinanceService {
     const actual = {...emptyWallet(), ...(walletSnap.data() ?? {})} as RothWallet;
     const discrepancies = Object.keys(expected).filter((k) => Number((expected as any)[k] ?? 0) !== Number((actual as any)[k] ?? 0));
     return {ok: discrepancies.length === 0, expected, actual, discrepancies};
+  }
+
+  async reserve(userId: string, amountRoth: number, reservationId: string, createdBy: string): Promise<RothWallet> {
+    validateAmount(amountRoth);
+    if (!userId || !reservationId) throw new Error("Reservation identity is required.");
+    const walletRef = this.db.collection(ROTH_WALLETS).doc(userId);
+    const reservationRef = this.db.collection(ROTH_RESERVATIONS).doc(reservationId);
+    return this.db.runTransaction(async (tx) => {
+      const reservation = await tx.get(reservationRef);
+      if (reservation.exists) return ((await tx.get(walletRef)).data() ?? emptyWallet()) as RothWallet;
+      const wallet = {...emptyWallet(), ...((await tx.get(walletRef)).data() ?? {})} as RothWallet;
+      if (wallet.availableRoth < amountRoth) throw new Error("Insufficient Roth balance.");
+      wallet.availableRoth -= amountRoth; wallet.reservedRoth += amountRoth; wallet.version++;
+      tx.set(walletRef, {...wallet, updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true});
+      tx.create(reservationRef, {reservationId, userId, amountRoth, status: "reserved", createdBy, createdAt: admin.firestore.FieldValue.serverTimestamp()});
+      return wallet;
+    });
+  }
+
+  async releaseReservation(reservationId: string): Promise<RothWallet> {
+    return this.transitionReservation(reservationId, "released");
+  }
+
+  async settleReservation(reservationId: string): Promise<RothWallet> {
+    return this.transitionReservation(reservationId, "settled");
+  }
+
+  private async transitionReservation(reservationId: string, target: "released" | "settled"): Promise<RothWallet> {
+    const reservationRef = this.db.collection(ROTH_RESERVATIONS).doc(reservationId);
+    return this.db.runTransaction(async (tx) => {
+      const reservation = await tx.get(reservationRef);
+      if (!reservation.exists) throw new Error("Reservation not found.");
+      const data = reservation.data()!;
+      if (data.status === target) return ((await tx.get(this.db.collection(ROTH_WALLETS).doc(String(data.userId)))).data() ?? emptyWallet()) as RothWallet;
+      if (data.status !== "reserved") throw new Error("Reservation has already been released or settled.");
+      const walletRef = this.db.collection(ROTH_WALLETS).doc(String(data.userId));
+      const wallet = {...emptyWallet(), ...((await tx.get(walletRef)).data() ?? {})} as RothWallet;
+      const amount = Number(data.amountRoth);
+      if (wallet.reservedRoth < amount) throw new Error("Reserved Roth projection is invalid.");
+      wallet.reservedRoth -= amount;
+      if (target === "released") wallet.availableRoth += amount;
+      else wallet.lifetimeRedeemedRoth += amount;
+      wallet.version++;
+      tx.set(walletRef, {...wallet, updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true});
+      tx.update(reservationRef, {status: target, completedAt: admin.firestore.FieldValue.serverTimestamp()});
+      return wallet;
+    });
+  }
+
+  async reverse(entryId: string, actor: string, reason: string): Promise<{entryId: string; wallet: RothWallet; duplicate: boolean}> {
+    if (!entryId || !actor || !reason.trim()) throw new Error("Reversal entry, actor and reason are required.");
+    const originalRef = this.db.collection(ROTH_LEDGER).doc(entryId);
+    const original = await originalRef.get();
+    if (!original.exists) throw new Error("Original ledger entry not found.");
+    const d = original.data()!;
+    const key = `reversal:${entryId}`;
+    return this.mutate({userId: String(d.userId), amountRoth: Number(d.amountRoth), type: "reversal", direction: d.direction === "credit" ? "debit" : "credit", sourceType: "reversal", sourceId: entryId, idempotencyKey: key, description: reason, createdBy: actor, approvedBy: actor, reason, metadata: {reversalOf: entryId}});
   }
 }

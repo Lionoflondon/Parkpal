@@ -17,6 +17,7 @@ import {
   NormalizedRecordDraft,
 } from "./aie_v2_core";
 import {RothFinanceService} from "./roth_finance";
+import {settleApprovedMissionReward} from "./roth_mission_settlement";
 
 export {
   createParkPalBillingPortalSession,
@@ -151,6 +152,20 @@ export const parkPalReconcileRoth = onCall(
     return roth.reconcile(userId);
   },
 );
+
+export const parkPalSettleMissionReward = onCall({region: "europe-west2", enforceAppCheck: false}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+  await assertParkPalAdmin(request.auth.uid);
+  try { return await settleApprovedMissionReward(db, roth, String(request.data?.missionId ?? ""), request.auth.uid); }
+  catch (error) { throw new HttpsError("failed-precondition", String(error)); }
+});
+
+export const parkPalReverseRoth = onCall({region: "europe-west2", enforceAppCheck: false}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+  await assertParkPalAdmin(request.auth.uid);
+  try { return await roth.reverse(String(request.data?.entryId ?? ""), request.auth.uid, String(request.data?.reason ?? "")); }
+  catch (error) { throw new HttpsError("failed-precondition", String(error)); }
+});
 
 export const syncParkPalDtroLegalData = onCall(
   {
