@@ -322,6 +322,24 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Roth is server-authoritative. Customers can inspect only their own state;
+    // all financial mutations are performed by trusted Functions transactions.
+    match /parkpal_roth_wallets/{userId} {
+      allow get: if isOwner(userId) || isParkPalAdmin();
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /parkpal_roth_ledger/{entryId} {
+      allow get: if signedIn() && (resource.data.userId == request.auth.uid || isParkPalAdmin());
+      allow list: if signedIn() && isParkPalAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /parkpal_roth_events/{eventId} {
+      allow read, write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
