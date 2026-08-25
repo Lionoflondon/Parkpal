@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 import '../../data/firestore_collections.dart';
+import '../atlas_intelligence/aie_models.dart';
 import 'parkpal_atlas_models.dart';
 
 class ParkPalAtlasCollections {
@@ -21,14 +22,7 @@ class ParkPalAtlasService {
     try {
       final firestore = await _safeFirestore();
       if (firestore == null) return _emptySummary;
-
-      final snapshot = await firestore
-          .collection(ParkPalAtlasCollections.roadProfiles)
-          .limit(500)
-          .get();
-      final profiles = snapshot.docs
-          .map((doc) => ParkPalAtlasRoadProfile.fromMap(doc.id, doc.data()))
-          .toList(growable: false);
+      final profiles = await _canonicalRoadProfiles(firestore);
       return _summaryFromProfiles(profiles);
     } catch (_) {
       return _emptySummary;
@@ -49,19 +43,15 @@ class ParkPalAtlasService {
     try {
       final firestore = await _safeFirestore();
       if (firestore == null) return const [];
-      final snapshot = await firestore
-          .collection(ParkPalAtlasCollections.roadProfiles)
-          .where('status', whereIn: [
-            AtlasRoadStatus.awaiting_verification.name,
-            AtlasRoadStatus.conflict.name,
-            AtlasRoadStatus.needs_refresh.name,
-            AtlasRoadStatus.unmapped.name,
-          ])
-          .limit(limit)
-          .get();
-
-      return snapshot.docs
-          .map((doc) => ParkPalAtlasRoadProfile.fromMap(doc.id, doc.data()))
+      final profiles = await _canonicalRoadProfiles(firestore);
+      return profiles
+          .where((profile) => {
+                AtlasRoadStatus.awaiting_verification,
+                AtlasRoadStatus.conflict,
+                AtlasRoadStatus.needs_refresh,
+                AtlasRoadStatus.unmapped,
+              }.contains(profile.status))
+          .take(limit)
           .toList(growable: false);
     } catch (_) {
       return const [];
@@ -257,18 +247,99 @@ class ParkPalAtlasService {
     try {
       final firestore = await _safeFirestore();
       if (firestore == null) return _emptySummary;
-      final snapshot = await firestore
-          .collection(ParkPalAtlasCollections.roadProfiles)
-          .where(field, isEqualTo: value)
-          .limit(500)
-          .get();
-      final profiles = snapshot.docs
-          .map((doc) => ParkPalAtlasRoadProfile.fromMap(doc.id, doc.data()))
-          .toList(growable: false);
+      final profiles =
+          (await _canonicalRoadProfiles(firestore)).where((profile) {
+        return field == 'city'
+            ? profile.city == value
+            : profile.borough == value;
+      }).toList(growable: false);
       return _summaryFromProfiles(profiles);
     } catch (_) {
       return _emptySummary;
     }
+  }
+
+  /// Customer Atlas uses an in-memory projection (Option A) generated from
+  /// canonical intelligence. `parkpal_atlas_roads` remains a legacy materialised
+  /// projection for existing Inspector/forecast compatibility, but is not read
+  /// by customer Atlas services.
+  Future<List<ParkPalAtlasRoadProfile>> _canonicalRoadProfiles(
+    FirebaseFirestore firestore,
+  ) async {
+    final snapshot = await firestore
+        .collection(AieCollections.canonicalIntelligence)
+        .limit(5000)
+        .get();
+    final grouped = <String, _CanonicalRoadAccumulator>{};
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final key = _canonicalRoadKey(doc.id, data);
+      if (key == null) continue;
+      grouped.putIfAbsent(key, () => _CanonicalRoadAccumulator(key)).add(data);
+    }
+
+    return grouped.values.map(_toRoadProfile).toList(growable: false);
+  }
+
+  String? _canonicalRoadKey(String recordId, Map<String, dynamic> data) {
+    final roadId = _text(data['roadId']);
+    if (roadId != null) return roadId;
+    final road =
+        _normaliseKeyPart(data['normalizedRoadName'] ?? data['roadName']);
+    final borough =
+        _normaliseKeyPart(data['normalizedBorough'] ?? data['borough']);
+    final council =
+        _normaliseKeyPart(data['normalizedCouncil'] ?? data['council']);
+    if (road == null || borough == null || council == null) {
+      // Preserve malformed records without allowing them to collapse into one
+      // blank-key aggregate. The record ID is deterministic and reviewable.
+      final fallback = _normaliseKeyPart(recordId);
+      return fallback == null ? null : 'record|$fallback';
+    }
+    return '$road|$borough|$council';
+  }
+
+  ParkPalAtlasRoadProfile _toRoadProfile(_CanonicalRoadAccumulator road) {
+    final coverage = calculateCoveragePercent(
+      verifiedRoads: road.verifiedSigns > 0 && road.conflicts == 0 ? 1 : 0,
+      totalKnownRoads: 1,
+    );
+    final pci = calculatePciScore(
+      coveragePercent: coverage,
+      conflicts: road.conflicts,
+      staleRecords: road.staleRecords,
+      missingGps: road.missingGps,
+      lowConfidence: road.lowConfidence,
+    );
+    return ParkPalAtlasRoadProfile(
+      roadId: road.key,
+      roadName: road.roadName,
+      borough: road.borough,
+      council: road.council,
+      city: road.city,
+      country: road.country,
+      totalParkingAssets: road.totalAssets,
+      verifiedSigns: road.verifiedSigns,
+      councilRecords: road.councilRecords,
+      fieldVerifiedRecords: road.fieldVerifiedRecords,
+      conflicts: road.conflicts,
+      staleRecords: road.staleRecords,
+      activeMissions: 0,
+      coveragePercent: coverage,
+      pciScore: pci,
+      status: _statusFor(
+        totalAssets: road.totalAssets,
+        verifiedSigns: road.verifiedSigns,
+        conflicts: road.conflicts,
+        staleRecords: road.staleRecords,
+        councilRecords: road.councilRecords,
+      ),
+      lastFieldVerificationAt: road.lastFieldVerificationAt,
+      lastCouncilSyncAt: road.lastImportedAt,
+      lastIrisReviewAt: road.lastVerifiedAt,
+      updatedAt: road.updatedAt,
+    );
   }
 
   AtlasSummary _summaryFromProfiles(List<ParkPalAtlasRoadProfile> profiles) {
@@ -359,4 +430,102 @@ DateTime? _latest(DateTime? current, DateTime? candidate) {
   if (candidate == null) return current;
   if (current == null) return candidate;
   return candidate.isAfter(current) ? candidate : current;
+}
+
+String? _text(Object? value) {
+  final text = value?.toString().trim();
+  return text == null || text.isEmpty ? null : text;
+}
+
+String? _normaliseKeyPart(Object? value) {
+  final text = _text(value)?.toLowerCase();
+  if (text == null) return null;
+  final normalised = text
+      .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+      .trim()
+      .replaceAll(RegExp(r'\s+'), '-');
+  return normalised.isEmpty ? null : normalised;
+}
+
+class _CanonicalRoadAccumulator {
+  _CanonicalRoadAccumulator(this.key);
+
+  final String key;
+  var totalAssets = 0;
+  var verifiedSigns = 0;
+  var councilRecords = 0;
+  var fieldVerifiedRecords = 0;
+  var conflicts = 0;
+  var staleRecords = 0;
+  var missingGps = 0;
+  var lowConfidence = 0;
+  String roadName = 'Unknown road';
+  String borough = 'Unknown borough';
+  String council = 'Unknown council';
+  String city = 'London';
+  String country = 'UK';
+  DateTime? lastFieldVerificationAt;
+  DateTime? lastImportedAt;
+  DateTime? lastVerifiedAt;
+  DateTime? updatedAt;
+
+  void add(Map<String, dynamic> data) {
+    totalAssets++;
+    roadName = _text(data['roadName']) ?? roadName;
+    borough = _text(data['borough']) ?? borough;
+    council = _text(data['council']) ?? council;
+    city = _text(data['city']) ?? city;
+    country = _text(data['country']) ?? country;
+
+    final verification = _text(data['verificationState']);
+    final safety = _text(data['customerSafetyState']);
+    final source = _text(data['sourceName']) ?? _text(data['sourceId']);
+    if (verification == AtlasVerificationState.official.name ||
+        verification == AtlasVerificationState.verifiedPlus.name) {
+      verifiedSigns++;
+    }
+    if (verification == AtlasVerificationState.fieldVerified.name ||
+        verification == AtlasVerificationState.verifiedPlus.name) {
+      fieldVerifiedRecords++;
+    }
+    if (source != null || safety == AtlasCustomerSafetyState.likely.name) {
+      councilRecords++;
+    }
+    if (safety == AtlasCustomerSafetyState.conflicting.name ||
+        verification == AtlasVerificationState.conflict.name ||
+        (data['conflictIds'] is List &&
+            (data['conflictIds'] as List).isNotEmpty)) {
+      conflicts++;
+    }
+    if (safety == AtlasCustomerSafetyState.stale.name ||
+        _isStale(_dateFromTimestamp(data['lastImportedAt']) ??
+            _dateFromTimestamp(data['updatedAt']))) {
+      staleRecords++;
+    }
+    if (data['latitude'] == null || data['longitude'] == null) missingGps++;
+    if (((data['confidence'] as num?)?.toDouble() ?? 0) < 0.5) {
+      lowConfidence++;
+    }
+    lastFieldVerificationAt = _latest(
+      lastFieldVerificationAt,
+      _dateFromTimestamp(data['lastVerifiedAt']),
+    );
+    lastImportedAt = _latest(
+      lastImportedAt,
+      _dateFromTimestamp(data['lastImportedAt']),
+    );
+    lastVerifiedAt = _latest(
+      lastVerifiedAt,
+      _dateFromTimestamp(data['lastVerifiedAt']),
+    );
+    updatedAt = _latest(
+      updatedAt,
+      _dateFromTimestamp(data['updatedAt']),
+    );
+  }
+}
+
+bool _isStale(DateTime? value) {
+  if (value == null) return false;
+  return DateTime.now().toUtc().difference(value.toUtc()).inDays > 90;
 }

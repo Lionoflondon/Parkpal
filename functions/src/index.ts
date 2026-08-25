@@ -16,6 +16,8 @@ import {
   deterministicRestrictionId,
   NormalizedRecordDraft,
 } from "./aie_v2_core";
+import {RothFinanceService} from "./roth_finance";
+import {settleApprovedMissionReward} from "./roth_mission_settlement";
 
 export {
   createParkPalBillingPortalSession,
@@ -49,6 +51,7 @@ const allowedAdminRoles = new Set([
   "pioneerManager",
   "atlasManager",
 ]);
+const roth = new RothFinanceService(db);
 
 export const runParkPalAieIngestionJob = onSchedule(
   {
@@ -100,6 +103,7 @@ export const runParkPalAieCouncilIngestion = onCall(
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "ParkPal Admin sign-in is required.");
     }
+    await assertParkPalAdmin(request.auth.uid);
     const councilId = String(request.data?.councilId ?? "").trim();
     if (!councilId) {
       throw new HttpsError("invalid-argument", "councilId is required.");
@@ -119,6 +123,75 @@ export const runParkPalAieCouncilIngestion = onCall(
     return result;
   },
 );
+
+export const parkPalAdminCreditRoth = onCall(
+  {region: "europe-west2", enforceAppCheck: false},
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+    await assertParkPalAdmin(request.auth.uid);
+    const data = request.data ?? {};
+    const userId = String(data.userId ?? "").trim();
+    const amountRoth = Number(data.amountRoth);
+    const reason = String(data.reason ?? "").trim();
+    if (!userId || !reason || !Number.isSafeInteger(amountRoth) || amountRoth <= 0) throw new HttpsError("invalid-argument", "userId, positive integer amountRoth and reason are required.");
+    try {
+      const result = await roth.mutate({userId, amountRoth, type: "admin_credit", direction: "credit", sourceType: "admin", sourceId: request.auth.uid, idempotencyKey: `admin_credit:${request.auth.uid}:${userId}:${String(data.idempotencyKey ?? reason)}`, description: reason, createdBy: request.auth.uid, approvedBy: request.auth.uid, reason});
+      await db.collection("parkpalPaymentAudit").add({action: "roth_admin_credit", actorUid: request.auth.uid, targetUid: userId, amountRoth, reason, ledgerId: result.entryId, createdAt: admin.firestore.FieldValue.serverTimestamp()});
+      return result;
+    } catch (error) { throw new HttpsError("failed-precondition", String(error)); }
+  },
+);
+
+export const parkPalAdminDebitRoth = onCall({region: "europe-west2", enforceAppCheck: false}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+  await assertParkPalAdmin(request.auth.uid);
+  const data = request.data ?? {}; const userId = String(data.userId ?? "").trim(); const amountRoth = Number(data.amountRoth); const reason = String(data.reason ?? "").trim();
+  if (!userId || !reason || !Number.isSafeInteger(amountRoth) || amountRoth <= 0) throw new HttpsError("invalid-argument", "userId, positive integer amountRoth and reason are required.");
+  try { const result = await roth.mutate({userId, amountRoth, type: "admin_debit", direction: "debit", sourceType: "admin", sourceId: request.auth.uid, idempotencyKey: `admin_debit:${request.auth.uid}:${userId}:${String(data.idempotencyKey ?? reason)}`, description: reason, createdBy: request.auth.uid, approvedBy: request.auth.uid, reason}); await db.collection("parkpalPaymentAudit").add({action: "roth_admin_debit", actorUid: request.auth.uid, targetUid: userId, amountRoth, reason, ledgerId: result.entryId, createdAt: admin.firestore.FieldValue.serverTimestamp()}); return result; }
+  catch (error) { throw new HttpsError("failed-precondition", String(error)); }
+});
+
+export const parkPalAdminAdjustRoth = onCall({region: "europe-west2", enforceAppCheck: false}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+  await assertParkPalAdmin(request.auth.uid);
+  const data = request.data ?? {}; const userId = String(data.userId ?? "").trim(); const amountRoth = Number(data.amountRoth); const reason = String(data.reason ?? "").trim(); const direction = String(data.direction ?? "");
+  if (!userId || !reason || !["credit", "debit"].includes(direction) || !Number.isSafeInteger(amountRoth) || amountRoth <= 0) throw new HttpsError("invalid-argument", "userId, direction, positive integer amountRoth and reason are required.");
+  try { const result = await roth.mutate({userId, amountRoth, type: "adjustment", direction: direction as "credit" | "debit", sourceType: "admin_adjustment", sourceId: request.auth.uid, idempotencyKey: `admin_adjustment:${request.auth.uid}:${userId}:${String(data.idempotencyKey ?? reason)}`, description: reason, createdBy: request.auth.uid, approvedBy: request.auth.uid, reason, metadata: {direction, actorUid: request.auth.uid, targetUid: userId}}); await db.collection("parkpalPaymentAudit").add({action: "roth_admin_adjustment", actorUid: request.auth.uid, targetUid: userId, direction, amountRoth, reason, ledgerId: result.entryId, createdAt: admin.firestore.FieldValue.serverTimestamp()}); return result; }
+  catch (error) { throw new HttpsError("failed-precondition", String(error)); }
+});
+
+export const parkPalInspectRoth = onCall({region: "europe-west2", enforceAppCheck: false}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+  await assertParkPalAdmin(request.auth.uid);
+  const userId = String(request.data?.userId ?? "").trim(); if (!userId) throw new HttpsError("invalid-argument", "userId is required.");
+  const [wallet, ledger, reservations] = await Promise.all([db.collection("parkpal_roth_wallets").doc(userId).get(), db.collection("parkpal_roth_ledger").where("userId", "==", userId).orderBy("createdAt", "desc").limit(100).get(), db.collection("parkpal_roth_reservations").where("userId", "==", userId).limit(100).get()]);
+  return {wallet: wallet.data() ?? null, ledger: ledger.docs.map((d) => d.data()), reservations: reservations.docs.map((d) => d.data())};
+});
+
+export const parkPalReconcileRoth = onCall(
+  {region: "europe-west2", enforceAppCheck: false},
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+    await assertParkPalAdmin(request.auth.uid);
+    const userId = String(request.data?.userId ?? "").trim();
+    if (!userId) throw new HttpsError("invalid-argument", "userId is required.");
+    return roth.reconcile(userId);
+  },
+);
+
+export const parkPalSettleMissionReward = onCall({region: "europe-west2", enforceAppCheck: false}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+  await assertParkPalAdmin(request.auth.uid);
+  try { return await settleApprovedMissionReward(db, roth, String(request.data?.missionId ?? ""), request.auth.uid); }
+  catch (error) { throw new HttpsError("failed-precondition", String(error)); }
+});
+
+export const parkPalReverseRoth = onCall({region: "europe-west2", enforceAppCheck: false}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+  await assertParkPalAdmin(request.auth.uid);
+  try { return await roth.reverse(String(request.data?.entryId ?? ""), request.auth.uid, String(request.data?.reason ?? "")); }
+  catch (error) { throw new HttpsError("failed-precondition", String(error)); }
+});
 
 export const syncParkPalDtroLegalData = onCall(
   {
