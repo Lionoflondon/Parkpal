@@ -88,6 +88,7 @@ export class RothFinanceService {
     const expected = emptyWallet();
     for (const doc of ledger.docs) {
       const d = doc.data(); const amount = Number(d.amountRoth ?? 0); const type = String(d.type ?? "");
+      expected.version += 1;
       if (type === "reservation_hold") { expected.availableRoth -= amount; expected.reservedRoth += amount; continue; }
       if (type === "reservation_release") { expected.availableRoth += amount; expected.reservedRoth -= amount; continue; }
       if (type === "reservation_settlement") { expected.reservedRoth -= amount; expected.lifetimeRedeemedRoth += amount; continue; }

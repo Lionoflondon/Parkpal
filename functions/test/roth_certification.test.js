@@ -72,3 +72,91 @@ test('reconciliation suite: corrupted wallet projection is detected', async () =
   assert.equal(result.ok, false);
   assert.ok(result.discrepancies.includes('availableRoth'));
 });
+
+test('security matrix: financially material client mutations are denied', async () => {
+  const alice = env.authenticatedContext('alice').firestore();
+  const protectedFields = [
+    'availableRoth', 'pendingRoth', 'reservedRoth', 'lifetimeEarnedRoth',
+    'lifetimeRedeemedRoth', 'lifetimeReversedRoth', 'version', 'updatedAt',
+  ];
+  for (const field of protectedFields) {
+    await assertFails(setDoc(doc(alice, 'parkpal_roth_wallets/alice'), {[field]: 1}, {merge: true}));
+  }
+  const ledgerFields = ['amountRoth', 'amountMinor', 'status', 'userId', 'idempotencyKey', 'sourceType', 'sourceId', 'createdAt', 'effectiveAt', 'metadata', 'reversalOf'];
+  for (const field of ledgerFields) {
+    await assertFails(setDoc(doc(alice, `parkpal_roth_ledger/field-${field}`), {[field]: 1}));
+  }
+  const eventFields = ['entryId', 'userId', 'idempotencyKey', 'createdAt'];
+  for (const field of eventFields) {
+    await assertFails(setDoc(doc(alice, `parkpal_roth_events/field-${field}`), {[field]: 1}));
+  }
+  const reservationFields = ['amountRoth', 'status', 'userId', 'createdAt', 'completedAt'];
+  for (const field of reservationFields) {
+    await assertFails(setDoc(doc(alice, `parkpal_roth_reservations/field-${field}`), {[field]: 1}));
+  }
+});
+
+test('security matrix: unauthenticated and cross-user financial reads are denied', async () => {
+  const unauth = env.unauthenticatedContext().firestore();
+  const bob = env.authenticatedContext('bob').firestore();
+  for (const path of ['parkpal_roth_wallets/alice', 'parkpal_roth_ledger/e1', 'parkpal_roth_events/e1', 'parkpal_roth_reservations/r1']) {
+    await assertFails(getDoc(doc(unauth, path)));
+    await assertFails(getDoc(doc(bob, path)));
+  }
+});
+
+test('mission lifecycle matrix: non-eligible terminal states cannot settle', async () => {
+  const states = [
+    {status: 'rejected', rewardApprovalStatus: 'approved'},
+    {status: 'cancelled', rewardApprovalStatus: 'approved'},
+    {status: 'expired', rewardApprovalStatus: 'approved'},
+    {status: 'failed', rewardApprovalStatus: 'approved'},
+    {status: 'completed', rewardApprovalStatus: 'rejected'},
+    {status: 'completed', rewardApprovalStatus: 'approved', rewardReversed: true},
+  ];
+  for (let i = 0; i < states.length; i++) {
+    await admin.firestore().doc(`parkpal_pioneer_missions/lifecycle-${i}`).set({assignedToUserId: `u-${i}`, rewardRoth: 1, ...states[i]});
+    await assert.rejects(() => settleApprovedMissionReward(admin.firestore(), service, `lifecycle-${i}`, 'admin'));
+  }
+});
+
+test('race matrix: release and settle have one terminal outcome', async () => {
+  for (let i = 0; i < 12; i++) {
+    const uid = `race-${i}`;
+    const reservationId = `race-reservation-${i}`;
+    await service.mutate({userId: uid, amountRoth: 2, type: 'admin_credit', direction: 'credit', sourceType: 'test', sourceId: uid, idempotencyKey: `seed-${uid}`, description: 'seed', createdBy: 'test'});
+    await service.reserve(uid, 2, reservationId, 'test');
+    const outcomes = await Promise.allSettled([service.releaseReservation(reservationId), service.settleReservation(reservationId)]);
+    assert.equal(outcomes.filter((x) => x.status === 'fulfilled').length, 1);
+    const reservation = (await admin.firestore().doc(`parkpal_roth_reservations/${reservationId}`).get()).data();
+    assert.ok(['released', 'settled'].includes(reservation.status));
+    const retry = await service.releaseReservation(reservationId).catch((error) => error);
+    assert.ok(retry instanceof Error || retry.availableRoth === 2);
+  }
+});
+
+test('race matrix: duplicate settlement and reversal are exactly once', async () => {
+  await service.mutate({userId: 'race-reversal', amountRoth: 3, type: 'admin_credit', direction: 'credit', sourceType: 'test', sourceId: 'seed', idempotencyKey: 'race-reversal-seed', description: 'seed', createdBy: 'test'});
+  const original = await admin.firestore().doc('parkpal_roth_ledger/race-reversal-seed').get();
+  const reversals = await Promise.allSettled(Array.from({length: 8}, () => service.reverse(original.id, 'admin', 'test reversal')));
+  assert.equal(reversals.filter((x) => x.status === 'fulfilled').length, 8);
+  assert.equal((await admin.firestore().collection('parkpal_roth_ledger').where('type', '==', 'reversal').get()).size, 1);
+  const wallet = (await admin.firestore().doc('parkpal_roth_wallets/race-reversal').get()).data();
+  assert.equal(wallet.availableRoth, 0);
+});
+
+test('reconciliation matrix: clean reservation and reversal projections reconcile', async () => {
+  await service.mutate({userId: 'reconcile-clean', amountRoth: 5, type: 'admin_credit', direction: 'credit', sourceType: 'test', sourceId: 'seed', idempotencyKey: 'reconcile-seed', description: 'seed', createdBy: 'test'});
+  await service.reserve('reconcile-clean', 2, 'reconcile-reservation', 'test');
+  await service.releaseReservation('reconcile-reservation');
+  const result = await service.reconcile('reconcile-clean');
+  assert.equal(result.ok, true, JSON.stringify(result));
+});
+
+test('reconciliation matrix: malformed and orphan fixtures are surfaced as discrepancies', async () => {
+  await admin.firestore().doc('parkpal_roth_wallets/corrupt').set({availableRoth: 1, reservedRoth: 0, lifetimeEarnedRoth: 1, lifetimeRedeemedRoth: 0, lifetimeReversedRoth: 0, pendingRoth: 0, version: 1});
+  await admin.firestore().doc('parkpal_roth_ledger/orphan').set({userId: 'corrupt', type: 'reservation_settlement', direction: 'debit', amountRoth: 'not-a-number'});
+  const result = await service.reconcile('corrupt');
+  assert.equal(result.ok, false);
+  assert.ok(result.discrepancies.length > 0);
+});
