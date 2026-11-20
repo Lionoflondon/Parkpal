@@ -129,7 +129,7 @@ class AieApiService {
   Future<FirebaseFirestore?> _safeFirestore() async {
     try {
       if (Firebase.apps.isEmpty) {
-        await Firebase.initializeApp(options: ParkPalFirebaseOptions.web);
+        await Firebase.initializeApp(options: ParkPalFirebaseOptions.current);
       }
       return _firestore ?? FirebaseFirestore.instance;
     } catch (_) {

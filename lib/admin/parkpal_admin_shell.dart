@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../features/roth/parkpal_roth_rewards_screen.dart';
 
 import '../features/atlas_intelligence/aie_admin_screen.dart';
 import '../features/dtro/dtro_admin_screen.dart';
@@ -20,6 +21,7 @@ enum ParkPalAdminSection {
   reports,
   irisReview,
   coverageForecast,
+  rothRewards,
   adminUsers,
   settings,
 }
@@ -124,6 +126,7 @@ class _ParkPalAdminShellState extends State<ParkPalAdminShell> {
       ParkPalAdminSection.dtroLegalData => const DtroAdminScreen(),
       ParkPalAdminSection.coverageForecast =>
         const IrisCoverageForecastAdminSection(),
+      ParkPalAdminSection.rothRewards => const ParkPalRothRewardsScreen(),
       ParkPalAdminSection.settings => const ParkPalAdminSettingsScreen(),
       _ => _ModulePage(section: section, role: role),
     };
@@ -668,6 +671,11 @@ class _EmptyState extends StatelessWidget {
 }
 
 bool _canViewSection(String role, ParkPalAdminSection section) {
+  if (section == ParkPalAdminSection.rothRewards &&
+      (!const bool.fromEnvironment('PARKPAL_ROTH_ENABLED') ||
+       const String.fromEnvironment('PARKPAL_ENV') != 'staging')) {
+    return false;
+  }
   if (role == 'superAdmin' || role == 'admin') return true;
   if (role == 'support') {
     return const {
@@ -729,6 +737,7 @@ String _emptyCopyFor(ParkPalAdminSection section) {
     ParkPalAdminSection.irisReview => 'No IRIS review items pending.',
     ParkPalAdminSection.coverageForecast =>
       'Coverage forecast has no priority roads.',
+    ParkPalAdminSection.rothRewards => 'ROTH reward actions will appear after company onboarding.',
     ParkPalAdminSection.adminUsers => 'No additional admin users found.',
     ParkPalAdminSection.settings => 'Operational settings are ready.',
     ParkPalAdminSection.dashboard => 'Dashboard metrics are warming up.',
@@ -905,6 +914,12 @@ _ModuleDefinition _definitionFor(ParkPalAdminSection section) {
           'Mission recommendations'
         ],
       ),
+    ParkPalAdminSection.rothRewards => const _ModuleDefinition(
+        title: 'ROTH Rewards',
+        description: 'Issue company-funded earned ROTH to a linked customer. Every grant is posted to the central ROTH ledger with ParkPal as issuer.',
+        collection: 'parkpalRothAudit',
+        capabilities: ['Company-scoped issuance', 'Central ledger posting', 'Immutable audit reference'],
+      ),
     ParkPalAdminSection.adminUsers => const _ModuleDefinition(
         title: 'Admin Users',
         description:
@@ -946,6 +961,7 @@ IconData _iconFor(ParkPalAdminSection section) {
     ParkPalAdminSection.reports => Icons.report_problem_outlined,
     ParkPalAdminSection.irisReview => Icons.visibility_outlined,
     ParkPalAdminSection.coverageForecast => Icons.auto_graph_outlined,
+    ParkPalAdminSection.rothRewards => Icons.account_balance_wallet_outlined,
     ParkPalAdminSection.adminUsers => Icons.admin_panel_settings_outlined,
     ParkPalAdminSection.settings => Icons.settings_outlined,
   };

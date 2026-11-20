@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -40,6 +41,11 @@ class AccountScreen extends StatelessWidget {
           if (mode == AccountScreenMode.profile) ...[
             const _QuickStatsBar(),
             const SizedBox(height: 16),
+            if (const bool.fromEnvironment('PARKPAL_ROTH_ENABLED') &&
+                const String.fromEnvironment('PARKPAL_ENV') == 'staging') ...[
+              const _RothAccountSection(),
+              const SizedBox(height: 16),
+            ],
             const _PaymentsSubscriptionSection(),
             const SizedBox(height: 16),
             const _AccountInsightsSection(),
@@ -164,6 +170,96 @@ class AccountScreen extends StatelessWidget {
     if (!email.contains('@')) return '@parkpal';
     return '@${email.split('@').first}';
   }
+}
+
+class _RothAccountSection extends StatefulWidget {
+  const _RothAccountSection();
+
+  @override
+  State<_RothAccountSection> createState() => _RothAccountSectionState();
+}
+
+class _RothAccountSectionState extends State<_RothAccountSection> {
+  bool _busy = false;
+  String? _linkCode;
+  int? _allocatedPence;
+  String? _error;
+
+  Future<void> _call(String operation) async {
+    if (FirebaseAuth.instance.currentUser == null) {
+      setState(() => _error = 'Sign in to link your ParkPal account with ROTH.');
+      return;
+    }
+    setState(() { _busy = true; _error = null; });
+    try {
+      final result = await FirebaseFunctions.instanceFor(region: 'europe-west2')
+          .httpsCallable(operation)
+          .call<Map<String, dynamic>>();
+      if (!mounted) return;
+      setState(() {
+        if (operation == 'createParkPalRothLink') {
+          _linkCode = result.data['code'] as String?;
+        } else {
+          _allocatedPence = (result.data['allocatedPence'] as num?)?.toInt() ?? 0;
+        }
+      });
+    } on FirebaseFunctionsException catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error.message ?? 'ROTH staging is not available yet.');
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = 'ROTH staging is not available yet.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => _PremiumSection(
+        icon: Icons.account_balance_wallet_outlined,
+        title: 'ROTH wallet',
+        subtitle: 'Link ParkPal with your central ROTH wallet. Your balance remains held and managed by ROTH.',
+        children: [
+          if (_allocatedPence != null)
+            ListTile(
+              leading: const Icon(Icons.account_balance_wallet_outlined),
+              title: const Text('Allocated to ParkPal'),
+              subtitle: Text('£${(_allocatedPence! / 100).toStringAsFixed(2)}'),
+            ),
+          if (_linkCode != null)
+            ListTile(
+              leading: const Icon(Icons.link),
+              title: const Text('Approve this link in the ROTH wallet'),
+              subtitle: SelectableText(_linkCode!),
+              trailing: IconButton(
+                tooltip: 'Copy link code',
+                icon: const Icon(Icons.copy),
+                onPressed: () => Clipboard.setData(ClipboardData(text: _linkCode!)),
+              ),
+            ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(_error!, style: const TextStyle(color: Colors.redAccent)),
+            ),
+          Wrap(spacing: 10, runSpacing: 8, children: [
+            OutlinedButton.icon(
+              onPressed: _busy ? null : () => _call('createParkPalRothLink'),
+              icon: const Icon(Icons.link),
+              label: Text(_busy ? 'Working…' : 'Link ROTH wallet'),
+            ),
+            TextButton.icon(
+              onPressed: _busy ? null : () => _call('getParkPalRothBalance'),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh ParkPal allocation'),
+            ),
+          ]),
+          const Padding(
+            padding: EdgeInsets.all(12),
+            child: Text('ROTH purchases or redemption are not offered for ParkPal subscriptions. Existing Stripe subscription checkout remains separate.'),
+          ),
+        ],
+      );
 }
 
 class _ProfileHero extends StatelessWidget {
