@@ -2,10 +2,15 @@ import * as admin from "firebase-admin";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 import {defineSecret} from "firebase-functions/params";
 import * as crypto from "node:crypto";
+import {parseParkPalRewardPolicy, ParkPalRewardProgram} from "./roth_reward_policy";
 
 const ROTH_API_ORIGIN = defineSecret("ROTH_STAGING_API_ORIGIN");
 const ROTH_MERCHANT_KEY_ID = defineSecret("ROTH_PARKPAL_MERCHANT_KEY_ID");
 const ROTH_MERCHANT_SECRET = defineSecret("ROTH_PARKPAL_MERCHANT_SECRET");
+const ROTH_REWARD_POLICY = defineSecret("PARKPAL_ROTH_REWARD_POLICY");
+// The current ROTH staging API has no reward reversal endpoint. Keep automatic
+// subscription issuance disabled until that central ledger capability is verified.
+const ROTH_REWARD_REVERSALS_SUPPORTED = false;
 const adminRoles = new Set(["superAdmin", "admin"]);
 
 type Input = Record<string, unknown>;
@@ -109,7 +114,7 @@ async function audit(uid: string, action: string, result: Input): Promise<void> 
 const protectedOptions = {
   region: "europe-west2",
   enforceAppCheck: true,
-  secrets: [ROTH_API_ORIGIN, ROTH_MERCHANT_KEY_ID, ROTH_MERCHANT_SECRET],
+  secrets: [ROTH_API_ORIGIN, ROTH_MERCHANT_KEY_ID, ROTH_MERCHANT_SECRET, ROTH_REWARD_POLICY],
 };
 
 export const createParkPalRothLink = onCall(protectedOptions, async (request) => {
@@ -131,18 +136,29 @@ export const issueParkPalRothReward = onCall(protectedOptions, async (request) =
   const customerUid = String(request.data?.customerUid ?? "");
   const rewardId = String(request.data?.rewardId ?? "");
   const campaignId = String(request.data?.campaignId ?? "");
+  const program = String(request.data?.program ?? "") as ParkPalRewardProgram;
   const reason = String(request.data?.reason ?? "");
-  const amountPence = request.data?.amountPence;
   if (!customerUid || !/^[A-Za-z0-9_:@.-]{1,160}$/.test(rewardId) || !campaignId || campaignId.length > 160
-      || !reason || reason.length > 500 || !Number.isSafeInteger(amountPence) || Number(amountPence) < 1 || Number(amountPence) > 100_000) {
-    throw new HttpsError("invalid-argument", "Supply a linked customer, stable reward reference, campaign, reason and positive integer pence amount within the single-award limit.");
+      || !reason || reason.length > 500 || !["subscription", "referral", "promotion"].includes(program)) {
+    throw new HttpsError("invalid-argument", "Supply a linked customer, stable reward reference, configured reward programme, campaign and reason.");
+  }
+  const policy = parseParkPalRewardPolicy(ROTH_REWARD_POLICY.value());
+  const programPolicy = policy.programs[program];
+  if (!programPolicy.enabled || !programPolicy.approved || !programPolicy.amountPence || programPolicy.maxPerCustomer < 1) {
+    throw new HttpsError("failed-precondition", "This ParkPal reward programme is disabled or has no approved value and issuance limit.");
+  }
+  if (program === "subscription" && (!policy.reversalsReady || !ROTH_REWARD_REVERSALS_SUPPORTED)) {
+    throw new HttpsError("failed-precondition", "Subscription rewards remain disabled until ROTH supports and approves reward reversals for refunds and cancellations.");
   }
   const db = admin.firestore();
   const requestId = crypto.createHash("sha256").update(JSON.stringify(["parkpal-roth-reward-v1", rewardId])).digest("hex");
   const requestRef = db.collection("parkpalRothIssuanceRequests").doc(requestId);
-  const payloadHash = crypto.createHash("sha256").update(JSON.stringify([customerUid,campaignId,reason,Number(amountPence)])).digest("hex");
+  const eligibilityRef = db.collection("parkpalRewardEligibility").doc(`${program}_${rewardId}`);
+  const usageRef = db.collection("parkpalRothRewardUsage").doc(`${customerUid}_${program}`);
+  const amountPence = programPolicy.amountPence;
+  const payloadHash = crypto.createHash("sha256").update(JSON.stringify([customerUid,campaignId,reason,program,amountPence])).digest("hex");
   const prior = await db.runTransaction(async (tx) => {
-    const snapshot = await tx.get(requestRef);
+    const [snapshot, eligibilitySnapshot, usageSnapshot] = await tx.getAll(requestRef, eligibilityRef, usageRef);
     if (snapshot.exists) {
       const record = snapshot.data() ?? {};
       if (record.actorUid !== uid || record.payloadHash !== payloadHash) {
@@ -150,15 +166,28 @@ export const issueParkPalRothReward = onCall(protectedOptions, async (request) =
       }
       return record.status === "posted" ? record : null;
     }
+    const eligibility = eligibilitySnapshot.data() ?? {};
+    if (!eligibilitySnapshot.exists || eligibility.status !== "eligible" || eligibility.program !== program ||
+        eligibility.customerUid !== customerUid || (program === "subscription" &&
+        (eligibility.paymentVerified !== true || eligibility.paymentStatus !== "paid" || eligibility.refunded === true || eligibility.disputed === true || eligibility.cancelled === true))) {
+      throw new HttpsError("failed-precondition", "A current, server-verified PARKPAL reward eligibility record is required.");
+    }
+    const usage = Number(usageSnapshot.data()?.lifetimeCount ?? 0);
+    if (!Number.isSafeInteger(usage) || usage >= programPolicy.maxPerCustomer) {
+      throw new HttpsError("resource-exhausted", "The configured customer issuance limit has been reached.");
+    }
     tx.create(requestRef, {
       actorUid: uid,
       payloadHash,
-      amountPence: Number(amountPence),
+      amountPence,
+      program,
       campaignId,
       reason,
       status: "pending",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+    tx.set(usageRef, {lifetimeCount: usage + 1, program, customerUid, updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true});
+    tx.update(eligibilityRef, {status: "issuance_pending", issuanceRequestId: requestId, updatedAt: admin.firestore.FieldValue.serverTimestamp()});
     return null;
   });
   if (prior) return {journalId: prior.journalId, duplicate: true};
@@ -170,6 +199,7 @@ export const issueParkPalRothReward = onCall(protectedOptions, async (request) =
     amountPence: Number(amountPence),
   });
   await requestRef.update({status:"posted",journalId:String(result.journalId ?? ""),postedAt:admin.firestore.FieldValue.serverTimestamp()});
+  await eligibilityRef.update({status:"issued",journalId:String(result.journalId ?? ""),issuedAt:admin.firestore.FieldValue.serverTimestamp()});
   await audit(uid, "roth.company_reward_issued", {journalId: result.journalId});
   return result;
 });

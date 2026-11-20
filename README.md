@@ -20,6 +20,7 @@ This repository contains the ParkPal customer platform, admin foundation, Atlas/
 - Storage path constants for sign and report images.
 - Environment config pattern using Dart compile-time values.
 - Stripe billing foundation using Firebase Functions, Secret Manager, Checkout, Billing Portal, webhooks, subscription entitlement records, invoice records, and a payment ledger.
+- Optional ROTH staging integration with centrally configurable, disabled-by-default subscription, referral and promotion reward eligibility.
 - Transparent London starter records for:
   - Kensington Road
   - Westminster loading bay

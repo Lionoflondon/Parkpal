@@ -3,12 +3,15 @@ import * as crypto from "crypto";
 import {HttpsError, onCall, onRequest} from "firebase-functions/v2/https";
 import {defineSecret} from "firebase-functions/params";
 import {logger} from "firebase-functions";
+import {parseParkPalRewardPolicy, subscriptionRewardEligibility} from "./roth_reward_policy";
 
 const STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
 const STRIPE_WEBHOOK_SECRET = defineSecret("STRIPE_WEBHOOK_SECRET");
 const PARKPAL_STRIPE_MONTHLY_PRICE_ID = defineSecret("PARKPAL_STRIPE_MONTHLY_PRICE_ID");
 const PARKPAL_STRIPE_BUSINESS_MONTHLY_PRICE_ID = defineSecret("PARKPAL_STRIPE_BUSINESS_MONTHLY_PRICE_ID");
 const PARKPAL_STRIPE_PRICE_IDS = defineSecret("PARKPAL_STRIPE_PRICE_IDS");
+const PARKPAL_ROTH_REWARD_POLICY = defineSecret("PARKPAL_ROTH_REWARD_POLICY");
+const PARKPAL_REWARD_REVERSALS_SUPPORTED = false;
 
 const paymentCustomers = "parkpalPaymentCustomers";
 const subscriptions = "parkpalSubscriptions";
@@ -16,6 +19,9 @@ const invoices = "parkpalInvoices";
 const paymentEvents = "parkpalPaymentEvents";
 const paymentLedger = "parkpalPaymentLedger";
 const paymentAudit = "parkpalPaymentAudit";
+const rewardEligibility = "parkpalRewardEligibility";
+const rewardPaymentBlocks = "parkpalRewardPaymentBlocks";
+const rewardSubscriptionBlocks = "parkpalRewardSubscriptionBlocks";
 const adminUsers = "parkpalAdminUsers";
 const productDescription =
   "ParkPal provides subscription-based access to parking restriction intelligence, road-sign guidance, evidence records, and fine-prevention tools for UK drivers and businesses. ParkPal does not sell, reserve, or operate parking spaces.";
@@ -306,7 +312,7 @@ export const refreshParkPalSubscription = onCall(
 export const parkPalStripeWebhook = onRequest(
   {
     region: "europe-west2",
-    secrets: [STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, PARKPAL_STRIPE_MONTHLY_PRICE_ID, PARKPAL_STRIPE_BUSINESS_MONTHLY_PRICE_ID],
+    secrets: [STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, PARKPAL_STRIPE_MONTHLY_PRICE_ID, PARKPAL_STRIPE_BUSINESS_MONTHLY_PRICE_ID, PARKPAL_ROTH_REWARD_POLICY],
   },
   async (request, response) => {
     const rawBody = Buffer.isBuffer((request as unknown as {rawBody?: Buffer}).rawBody) ?
@@ -379,8 +385,8 @@ async function handleStripeEvent(event: Record<string, unknown>): Promise<void> 
       provider: "stripe",
       objectId: object?.id ?? null,
       receivedAt: admin.firestore.FieldValue.serverTimestamp(),
-      processedAt: admin.firestore.FieldValue.serverTimestamp(),
-      processed: true,
+      processedAt: null,
+      processed: false,
       productScope: "parking_intelligence_only",
     },
     {merge: true},
@@ -401,10 +407,21 @@ async function handleStripeEvent(event: Record<string, unknown>): Promise<void> 
   }
   if (type.startsWith("customer.subscription.") && object) {
     await upsertSubscription(object);
+    if (object.cancel_at_period_end === true || ["canceled", "unpaid", "incomplete_expired"].includes(String(object.status ?? ""))) {
+      await markSubscriptionRewardBlocked(String(object.id ?? ""), object.cancel_at_period_end === true ? "subscription_cancellation_scheduled" : "subscription_not_active");
+    }
   }
   if (type === "invoice.paid" || type === "invoice.payment_failed") {
     await upsertInvoiceAndLedger(type, object);
   }
+  if (type === "customer.subscription.deleted" && object) {
+    await markSubscriptionRewardBlocked(String(object.id ?? ""), "subscription_cancelled");
+  }
+  if ((type === "charge.refunded" || type === "charge.dispute.created" || type === "radar.early_fraud_warning.created") && object) {
+    const paymentIntentId = String(object.payment_intent ?? "");
+    if (paymentIntentId) await markPaymentRewardBlocked(paymentIntentId, type);
+  }
+  await eventRef.set({processedAt: admin.firestore.FieldValue.serverTimestamp(), processed: true}, {merge: true});
 }
 
 async function upsertSubscription(subscription: Record<string, unknown>): Promise<void> {
@@ -505,7 +522,107 @@ async function upsertInvoiceAndLedger(type: string, invoice?: Record<string, unk
       },
       {merge: true},
     );
+    if (type === "invoice.paid") {
+      await recordSubscriptionRewardEligibility({invoice, subscription, userId, amountPaid});
+    }
   }
+}
+
+async function recordSubscriptionRewardEligibility(input: {
+  invoice: Record<string, unknown>;
+  subscription?: Record<string, unknown>;
+  userId: string;
+  amountPaid: number;
+}): Promise<void> {
+  const {invoice, subscription, userId, amountPaid} = input;
+  const invoiceId = String(invoice.id ?? "");
+  const subscriptionId = String(invoice.subscription ?? "");
+  const customerId = String(invoice.customer ?? "");
+  const paymentIntentId = String(invoice.payment_intent ?? "");
+  const activeUser = await admin.auth().getUser(userId).catch(() => undefined);
+  const policy = parseParkPalRewardPolicy(process.env.PARKPAL_ROTH_REWARD_POLICY ?? "");
+  const eligibility = subscriptionRewardEligibility({
+    invoicePaid: invoice.paid === true,
+    invoiceStatus: String(invoice.status ?? ""),
+    amountPaid,
+    paymentIntentId,
+    invoiceSubscriptionId: subscriptionId,
+    invoiceCustomerId: customerId,
+    subscriptionId: String(subscription?.id ?? ""),
+    subscriptionCustomerId: String(subscription?.customer ?? ""),
+    subscriptionStatus: String(subscription?.status ?? ""),
+    cancelAtPeriodEnd: subscription?.cancel_at_period_end === true,
+    emailVerified: activeUser?.emailVerified === true,
+    alreadyRefunded: false,
+    disputed: false,
+    existingRewardForInvoice: false,
+  }, policy);
+  const paymentBlockRef = admin.firestore().collection(rewardPaymentBlocks).doc(stableDocumentId(paymentIntentId));
+  const subscriptionBlockRef = admin.firestore().collection(rewardSubscriptionBlocks).doc(stableDocumentId(subscriptionId));
+  const [paymentBlock, subscriptionBlock] = await Promise.all([paymentBlockRef.get(), subscriptionBlockRef.get()]);
+  const eligible = eligibility.eligible && !paymentBlock.exists && !subscriptionBlock.exists &&
+    PARKPAL_REWARD_REVERSALS_SUPPORTED;
+  const status = eligible ? "eligible" : "ineligible";
+  await admin.firestore().collection(rewardEligibility).doc(`subscription_${invoiceId}`).set({
+    program: "subscription",
+    rewardId: invoiceId,
+    invoiceId,
+    userUid: userId,
+    customerUid: userId,
+    stripeCustomerId: customerId,
+    paymentIntentId,
+    subscriptionId,
+    paymentVerified: invoice.paid === true && invoice.status === "paid" && amountPaid > 0 && Boolean(paymentIntentId),
+    paymentStatus: String(invoice.status ?? "unknown"),
+    refunded: paymentBlock.exists,
+    disputed: paymentBlock.exists,
+    cancelled: subscriptionBlock.exists,
+    amountPaidPence: amountPaid,
+    status,
+    reason: paymentBlock.exists ? "payment_refunded_or_disputed" : subscriptionBlock.exists ? "subscription_cancelled" :
+      PARKPAL_REWARD_REVERSALS_SUPPORTED ? eligibility.reason : "reward_reversal_controls_unavailable",
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, {merge: true});
+}
+
+async function markPaymentRewardBlocked(paymentIntentId: string, reason: string): Promise<void> {
+  await admin.firestore().collection(rewardPaymentBlocks).doc(stableDocumentId(paymentIntentId)).set({
+    reason,
+    paymentIntentId,
+    blockedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, {merge: true});
+  const matches = await admin.firestore().collection(rewardEligibility).where("paymentIntentId", "==", paymentIntentId).get();
+  for (const doc of matches.docs) {
+    await doc.ref.update({
+      status: doc.data().status === "issued" ? "reversal_required" : "ineligible",
+      refunded: reason === "charge.refunded",
+      disputed: reason !== "charge.refunded",
+      reason,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+}
+
+async function markSubscriptionRewardBlocked(subscriptionId: string, reason: string): Promise<void> {
+  if (!subscriptionId) return;
+  await admin.firestore().collection(rewardSubscriptionBlocks).doc(stableDocumentId(subscriptionId)).set({
+    reason,
+    subscriptionId,
+    blockedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, {merge: true});
+  const matches = await admin.firestore().collection(rewardEligibility).where("subscriptionId", "==", subscriptionId).get();
+  for (const doc of matches.docs) {
+    await doc.ref.update({
+      status: doc.data().status === "issued" ? "reversal_required" : "ineligible",
+      cancelled: true,
+      reason,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+}
+
+function stableDocumentId(value: string): string {
+  return crypto.createHash("sha256").update(value).digest("hex");
 }
 
 function stripeSubscriptionStatus(status: string): string {
