@@ -397,7 +397,7 @@ class ParkPalAdminDataService {
 
   Future<void> _ensureFirebase() async {
     if (Firebase.apps.isEmpty) {
-      await Firebase.initializeApp(options: ParkPalFirebaseOptions.web);
+      await Firebase.initializeApp(options: ParkPalFirebaseOptions.current);
     }
   }
 

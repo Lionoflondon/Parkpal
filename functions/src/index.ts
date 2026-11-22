@@ -26,6 +26,11 @@ export {
   parkPalStripeWebhook,
   refreshParkPalSubscription,
 } from "./stripe_payments";
+export {
+  createParkPalRothLink,
+  getParkPalRothBalance,
+  issueParkPalRothReward,
+} from "./roth_integration";
 
 admin.initializeApp();
 

@@ -16,7 +16,7 @@ class ParkPalAuthService {
     try {
       Firebase.app();
     } catch (_) {
-      await Firebase.initializeApp(options: ParkPalFirebaseOptions.web);
+      await Firebase.initializeApp(options: ParkPalFirebaseOptions.current);
     }
 
     final firebaseAuth = FirebaseAuth.instance;
